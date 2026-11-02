@@ -55,7 +55,7 @@ cd vita-kernel-demo && ./build.sh   # app + kernel plugin
 Each project emits one uniquely named artifact in its `build/` directory:
 
 ```text
-build/cockpit-v01.00-b39.vpk
+build/cockpit-v01.00-b44.vpk
 build/cap-test-v01.00-b4.vpk
 build/kernel-demo-v01.00-b5.vpk
 ```
@@ -118,17 +118,21 @@ shown only on the PLUGINS tab.
 |---|---|
 | L / R | switch HOME / PLUGINS |
 | D-pad up/down, left stick | scroll HOME, or move the PLUGINS selection; at the last row it reaches the unlisted files |
-| Cross | toggle the selected plugin, or confirm a modal; on a greyed control it shows why it cannot act |
+| Cross | open the change confirmation, confirm a modal, or close a receipt |
+| Triangle | open `PLUGIN SESSION`: reboot, undo the last change, or close |
 | Circle | cancel a modal |
 | PS button | leave the app (system) |
 
 HOME keeps the dashboard and ends with the read-only summary block; the full
 ledger is its own screen. PLUGINS reads every path in the active `config.txt` —
 active or commented — groups it by load target, and toggles a plugin by editing
-its line. Every row shows a status badge (`ACTIVATED`, `DISABLED`, `MISSING`,
-`PARTIAL`, `NOT REACHED`, `BOOT`) and an action control; the control is greyed
-when the action is impossible. `henkaku.suprx` and the three boot modules are
-locked; the DRM, storage, and other load-bearing plugins warn before a change.
+its line. Every row reports what is running (`LOADED`, `OFF`, `MIXED`, `MISSING`,
+`NOT REACHED`, `BOOT`) and adds `NEXT ON` or `NEXT OFF` when the file differs
+from the launch set. Every change confirms, names the next-boot effect and the
+risk, and opens a receipt after the write. `TRIANGLE` opens a session sheet with
+`REBOOT NOW` and `UNDO LAST CHANGE`; reboot is refused below 20 % battery unless
+charging. `henkaku.suprx` and the three boot modules are locked; the DRM, storage,
+and other load-bearing plugins warn before a change.
 The first session writes `config.txt.original` once; every session writes
 `config.txt.session`. There are no three-deep `.bak` rotations, and
 `boot_config.txt` is never opened. Descriptions cover 155 known taiHEN plugins;
@@ -140,6 +144,12 @@ an entry outside the catalog says `N/A`.
 
 *The PLUGINS tab in the host preview. Same synthetic values.*
 
+<p align="center">
+  <img src="vita-cockpit/docs/preview-session.png" alt="COCKPIT plugin session sheet" width="640">
+</p>
+
+*The session sheet: reboot and one-step undo, without leaving the app.*
+
 A number the platform cannot report renders `--`; it is never guessed or
 substituted with zero. Storage uses `N/A` for an unmounted volume and `ERR xx`
 for a refused read.
@@ -148,14 +158,15 @@ for a refused read.
 
 ```sh
 cd vita-cockpit
-./tools/test/run.sh      # 316 host checks against a fake port
-./tools/preview/run.sh   # 15 960×544 PNGs in build/preview/
+./tools/test/run.sh      # 400 host checks against a fake port
+./tools/preview/run.sh   # 19 960×544 PNGs in build/preview/
 ```
 
 The tests link the real sampling policy against a fake platform and assert the
 alert boundary, failed-read handling, unit conversions, history ring, frame
-floor, the plugin table, the config editor, the two snapshots, the transactional
-write and its restore path, and the input reducer. The preview renders the
+floor, the plugin table, the config editor, the loaded/next-boot split, the
+snapshots and one-step undo, interrupted-swap recovery, the transactional write
+and its restore path, and the input reducer. The preview renders the
 shipped composition through a software vita2d shim, so a PNG proves the policy
 ran. Neither replaces a hardware run.
 

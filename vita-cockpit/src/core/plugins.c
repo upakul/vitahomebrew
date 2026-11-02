@@ -377,15 +377,10 @@ void plugins_scan(void)
      * opened. A readable empty ux0: file is still the active config, and a
      * too-large file is active but unreadable; neither falls through to ur0:.
      */
-    int saw_unreadable = 0;
-
     for (int i = 0; i < CONFIG_COUNT; ++i) {
         int n = 0;
         PlatformReadStatus status = platform_read_config(
             CONFIGS[i], buf, (int)sizeof(buf), &n);
-
-        if (status == PLATFORM_READ_UNREADABLE)
-            saw_unreadable = 1;
 
         if (status == PLATFORM_READ_OK) {
             g_plugins.config_found = 1;
@@ -398,10 +393,17 @@ void plugins_scan(void)
             g_plugins.config_too_large = 1;
             break;
         }
-    }
 
-    if (!g_plugins.config_found && saw_unreadable)
-        g_plugins.config_unreadable = 1;
+        /*
+         * If ux0: exists but cannot be read, taiHEN may still open it at boot.
+         * Reporting ur0: as the active file would describe a file the boot
+         * does not read (D71).
+         */
+        if (status == PLATFORM_READ_UNREADABLE) {
+            g_plugins.config_unreadable = 1;
+            break;
+        }
+    }
 
     /*
      * A path before the first section is a warning, not a reason to hide the

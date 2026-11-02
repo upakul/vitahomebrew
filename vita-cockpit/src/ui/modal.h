@@ -6,6 +6,10 @@
 void modal_open_confirm(UiState *ui, int row, int mode, const char *text);
 void modal_open_error(UiState *ui, const char *text);
 void modal_open_info(UiState *ui, const char *text);
+void modal_open_receipt(UiState *ui, const char *title, const char *text);
+void modal_open_session(UiState *ui, const char *text, const char *const *choices,
+                        int count);
+void modal_open_restart(UiState *ui, const char *text);
 void modal_draw(const UiState *ui);
 
 #endif

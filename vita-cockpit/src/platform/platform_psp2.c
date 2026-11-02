@@ -413,6 +413,13 @@ int platform_write_config(const char *path, const char *text, int len)
         done += w;
     }
 
+    /*
+     * Best-effort flush. The read-back below is the correctness check; a
+     * filesystem that refuses the sync must not turn every edit into a DATA
+     * failure. The swap still leaves .old recoverable if power is lost.
+     */
+    (void)sceIoSyncByFd(fd, 0);
+
     if (sceIoClose(fd) < 0) {
         (void)sceIoRemove(tmp);
         s_write_error = "CLOSE";
@@ -439,8 +446,12 @@ int platform_write_config(const char *path, const char *text, int len)
     }
 
     if (sceIoRename(tmp, path) < 0) {
-        if (had_original)
-            (void)sceIoRename(old, path);
+        if (had_original && sceIoRename(old, path) < 0) {
+            (void)sceIoRemove(tmp);
+            s_write_error = "RESTORE";
+            return -1;
+        }
+
         (void)sceIoRemove(tmp);
         s_write_error = "RENAME";
         return -1;
@@ -510,6 +521,73 @@ int platform_backup_config(const char *path, const char *text, int len,
         *session_ok = have_session;
 
     return (have_original && have_session) ? 0 : -1;
+}
+
+static int sibling_path(char *dst, size_t cap, const char *path,
+                        const char *suffix)
+{
+    int n;
+
+    if (path == NULL || suffix == NULL || cap == 0)
+        return -1;
+
+    n = snprintf(dst, cap, "%s%s", path, suffix);
+    return (n > 0 && (size_t)n < cap) ? 0 : -1;
+}
+
+int platform_recover_swap(const char *path)
+{
+    char old[PLATFORM_PATH_MAX];
+
+    if (path == NULL)
+        return 0;
+    if (sibling_path(old, sizeof(old), path, ".old") != 0)
+        return 0;
+
+    if (platform_file_exists(path) || !platform_file_exists(old))
+        return 0;
+
+    return sceIoRename(old, path) < 0 ? -1 : 1;
+}
+
+int platform_snapshot_undo(const char *path, const char *text, int len)
+{
+    char dst[PLATFORM_PATH_MAX];
+
+    if (sibling_path(dst, sizeof(dst), path, ".undo") != 0)
+        return -1;
+
+    return platform_write_config(dst, text, len);
+}
+
+PlatformReadStatus platform_read_undo(const char *path, char *buf, int cap,
+                                      int *out_len)
+{
+    char dst[PLATFORM_PATH_MAX];
+
+    if (sibling_path(dst, sizeof(dst), path, ".undo") != 0)
+        return PLATFORM_READ_UNREADABLE;
+
+    return platform_read_config(dst, buf, cap, out_len);
+}
+
+int platform_remove_undo(const char *path)
+{
+    char dst[PLATFORM_PATH_MAX];
+
+    if (sibling_path(dst, sizeof(dst), path, ".undo") != 0)
+        return -1;
+    if (!platform_file_exists(dst))
+        return 0;
+
+    return sceIoRemove(dst) < 0 ? -1 : 0;
+}
+
+int platform_request_reboot(void)
+{
+    /* [V] psp2/power.h: int scePowerRequestColdReset(void). [C] that a userland
+     * UNSAFE eboot on 3.65 Enso is allowed to perform the reset. */
+    return scePowerRequestColdReset();
 }
 
 int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)

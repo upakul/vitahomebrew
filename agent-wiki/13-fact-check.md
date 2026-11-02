@@ -75,19 +75,21 @@ untested.
 
 | Check | Result |
 |---|---|
-| App build | Success, 111.1 KB VPK (b39) |
+| App build | Success, 117.0 KB VPK (b44) |
 | Auth ID | `0x2F00000000000001` (UNSAFE default, D42); `0x2F00000000000002` with `--safe` |
 | Imports | `ScePower`, `SceSysmem`, `SceIofilemgr`, `SceKernelModulemgr`, `SceRtc`, `SceCtrl`, `SceLibKernel`; `SceDisplay`, `SceGxm`, `SceSysmodule`, `SceAppMgr`, `SceCommonDialog` via libvita2d |
-| Host tests | 316 checks, 0 failures (`tools/test/run.sh`) |
+| Host tests | 400 checks, 0 failures (`tools/test/run.sh`) |
 | Plugin list | `[V]` a real 19-entry config parses 19/19 and groups as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; tests cover BOM, comments, long names, section mapping, priority merge, the 64-entry ceiling and its notice, and a path before the first section as a warning |
-| Plugin editor | `[V]` host tests cover ux0 precedence, empty config, full-path duplicate rows, `*!` halts, lock and warn decisions, partial enable, missing active/inactive controls, per-line pending, and exact `#` round trips with CRLF, indentation, no final newline, and double comments |
-| Snapshots | `[V]` host tests cover `config.txt.original` created once and `config.txt.session` refreshed each session; a failed snapshot warns but leaves the editor writable; `boot_config.txt` is byte-identical with no backup file |
-| Config write | `[C]` the adapter's verified rename-away swap is implemented and builds; host tests exercise the same transaction and its restore path in the fake, not the SDK calls, and the target's rename semantics are unverified. A failure names the stage (`OPEN`, `DATA`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, `RESTORE`). |
-| Host preview render | 15 states rendered through the shipped composition (`tools/preview/run.sh`), busiest 5,793 draw calls |
-| Tabs and summary | `[V]` host preview: the 64 px header carries only HOME/PLUGINS tabs, the clock and the hazard band at y 48; the activated count is a full-width `PLUGINS` block below STORAGE/SYSTEM (D67), reached by scrolling HOME |
+| Plugin editor | `[V]` host tests cover ux0 precedence, empty config, full-path duplicate rows, `*!` halts, lock and warn decisions, loaded/next-boot status, mixed-row disable-first, locked+missing agreement, missing active/inactive controls, per-line pending, and exact `#` round trips with CRLF, indentation, no final newline, and double comments |
+| Snapshots and undo | `[V]` host tests cover `config.txt.original` created once, `config.txt.session` refreshed each session, `config.txt.undo` written before each toggle, undo after relaunch and from a missing live file, and a refused undo after an external edit; `boot_config.txt` is byte-identical with no backup file |
+| Config write | `[C]` the adapter's verified rename-away swap is implemented and builds; host tests exercise the same transaction, its restore path and `.old` recovery in the fake, not the SDK calls, and the target's rename semantics are unverified. A failure names the stage (`OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, `RESTORE`, `UNDO`). |
+| Host preview render | 19 states rendered through the shipped composition (`tools/preview/run.sh`), busiest 6,343 draw calls |
+| Tabs and summary | `[V]` host preview: the 64 px header carries only HOME/PLUGINS tabs, the clock and the hazard band at y 48; the loaded count is a full-width `PLUGINS` block below STORAGE/SYSTEM (D67), reached by scrolling HOME |
 | Pending baseline | `[C]` session-scoped: relaunching COCKPIT before the reboot re-reads the edited file as the new baseline (D59) |
 | Plugin descriptions | 155 rows: every AutoPlugin2 Vita catalog path plus iTLS, libshacccg, YAMT and HENkaku; 10 rows marked `[C]` for missing or corrected text |
-| Runtime | `[V]` 2026-11-02 at b13: all panels render on the 3.65 console; b39 is built and host-tested, pending the fixed tabbed check |
+| Runtime | `[V]` 2026-11-02 at b13: all panels render on the 3.65 console; b44 is built and host-tested, pending the hardened tabbed check |
+| Cold reset | `[V]` `scePowerRequestColdReset` is declared in `psp2/power.h`; `[C]` that an UNSAFE userland eboot may perform it on 3.65 Enso |
+| Reboot and undo | `[V]` host preview renders the confirmation, receipt, session and restart modals; the actual cold reset and undo write are unverified on hardware |
 | `SceIoDevInfo` | Uses the SDK type, 24 bytes, not the 16-byte community struct |
 | Model string | Reports `PSVITA`, because `sceKernelGetModel()` cannot tell PCH-1000 from PCH-2000 |
 

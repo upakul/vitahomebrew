@@ -24,6 +24,8 @@
 #define GROUP_GAP 10.0f
 #define PLUGIN_BOTTOM 16.0f
 #define CONFIG_LINE_H 14.0f
+#define CONFIG_LINE_COUNT 3
+#define ROWS_TOP (PLUGIN_TOP + CONFIG_LINE_H * CONFIG_LINE_COUNT + SP_2)
 #define PLUGIN_EMPTY_H 30.0f
 
 #define DOT_SIZE 6.0f
@@ -62,7 +64,7 @@ static int group_count(void)
 
 float plugins_content_height(void)
 {
-    float h = PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2;
+    float h = ROWS_TOP;
 
     if (g_editor.row_count == 0) {
         h += PLUGIN_EMPTY_H;
@@ -93,7 +95,7 @@ float plugins_content_height(void)
 
 int plugins_row_y(int row)
 {
-    float y = PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2;
+    float y = ROWS_TOP;
     int groups_drawn = 0;
 
     if (g_editor.row_count == 0)
@@ -166,10 +168,11 @@ static void draw_control(float right, float y, int row)
 {
     const char *label = editor_action_text(row);
     int actionable = editor_row_actionable(row);
+    int action = editor_next_action(row);
     uint32_t colour = C_DIM;
 
     if (actionable)
-        colour = strcmp(label, "ENABLE") == 0 ? C_GREEN : C_CYAN;
+        colour = action == EDITOR_ACTION_ENABLE ? C_GREEN : C_CYAN;
 
     float x = right - CONTROL_W;
 
@@ -212,21 +215,11 @@ static void draw_row(const UiState *ui, Rect r, int index, float y)
     float name_x = r.x + PANEL_PAD + NAME_GAP;
     float right = r.x + r.w - PANEL_PAD;
 
-    int duplicate = 0;
-    for (int i = 0; i < g_editor.row_count; ++i) {
-        if (i != index && tai_ieq(g_editor.rows[i].name, p->name)) {
-            duplicate = 1;
-            break;
-        }
-    }
-
-    const char *label = duplicate ? p->path : p->name;
+    const char *label = editor_row_label(index);
     uint32_t colour = status_colour(p->status);
 
-    if (index == ui->selection) {
-        uint32_t c = editor_row_actionable(index) ? C_WHITE : C_DIM;
-        draw_rect(r.x + 4.0f, y - 2.0f, 2.0f, PLUGIN_STRIDE - 6.0f, c);
-    }
+    if (index == ui->selection)
+        draw_rect(r.x + 4.0f, y - 2.0f, 2.0f, PLUGIN_STRIDE - 6.0f, C_WHITE);
 
     draw_rect(r.x + PANEL_PAD, y + DOT_DY, DOT_SIZE, DOT_SIZE, colour);
 
@@ -239,9 +232,11 @@ static void draw_row(const UiState *ui, Rect r, int index, float y)
 
     draw_badge(status_x, badge_y, status, colour);
 
-    if (p->pending) {
-        float pending_x = status_x - BADGE_GAP - badge_width("PENDING");
-        draw_badge(pending_x, badge_y, "PENDING", C_YELLOW);
+    if (p->next_change != 0) {
+        const char *next = p->next_change > 0 ? "NEXT ON" : "NEXT OFF";
+        float next_x = status_x - BADGE_GAP - badge_width(next);
+
+        draw_badge(next_x, badge_y, next, C_YELLOW);
     }
 
     font_text(p->desc[0] != '\0' ? p->desc : "N/A", name_x,
@@ -252,18 +247,27 @@ static void draw_config_lines(Rect r)
 {
     char line[256];
     uint32_t colour = C_DIM;
+    float y = r.y + PLUGIN_TOP;
 
     if (g_editor.source[0] == '\0') {
         snprintf(line, sizeof(line), "NO CONFIG.TXT");
         colour = C_YELLOW;
     } else if (g_editor.ignored[0] != '\0') {
-        snprintf(line, sizeof(line), "SOURCE %s  IGNORED %s", g_editor.source,
-                 g_editor.ignored);
+        snprintf(line, sizeof(line), "USING %s   %s IS NOT USED",
+                 g_editor.source, g_editor.ignored);
     } else {
-        snprintf(line, sizeof(line), "SOURCE %s", g_editor.source);
+        snprintf(line, sizeof(line), "USING %s", g_editor.source);
     }
 
-    font_text(line, r.x + PANEL_PAD, r.y + PLUGIN_TOP, PX_MICRO, colour);
+    if (g_editor.recovered) {
+        size_t used = strlen(line);
+        snprintf(line + used, sizeof(line) - used, "   RECOVERED");
+    }
+
+    font_text(line, r.x + PANEL_PAD, y, PX_MICRO, colour);
+
+    y += CONFIG_LINE_H;
+    colour = C_DIM;
 
     const char *read_only = editor_readonly_reason();
 
@@ -271,39 +275,45 @@ static void draw_config_lines(Rect r)
         snprintf(line, sizeof(line), "READ ONLY - %s", read_only);
         colour = C_YELLOW;
     } else {
-        snprintf(line, sizeof(line), "%d ROWS  %d ACTIVATED",
-                 g_editor.row_count, g_editor.activated_total);
+        snprintf(line, sizeof(line), "%d ROWS  %d LOADED  %d NEXT BOOT",
+                 g_editor.row_count, g_editor.activated_total,
+                 g_editor.pending_count);
 
-        size_t used = strlen(line);
-
-        if (g_editor.pending_count > 0 && used < sizeof(line)) {
-            snprintf(line + used, sizeof(line) - used, "  %d PENDING",
-                     g_editor.pending_count);
-            used = strlen(line);
-        }
-
-        if (g_editor.invalid && used < sizeof(line)) {
+        if (g_editor.invalid || g_editor.paths_truncated) {
+            size_t used = strlen(line);
             snprintf(line + used, sizeof(line) - used, "  CONFIG WARNING");
-            used = strlen(line);
             colour = C_YELLOW;
         }
 
-        if (g_editor.backup_warning && used < sizeof(line)) {
+        if (g_editor.backup_warning) {
+            size_t used = strlen(line);
             snprintf(line + used, sizeof(line) - used, "  BACKUP WARNING");
             colour = C_YELLOW;
-        } else if (used < sizeof(line)) {
-            snprintf(line + used, sizeof(line) - used,
-                     "  ORIGINAL OK  SESSION OK");
         }
     }
 
-    font_text(line, r.x + PANEL_PAD, r.y + PLUGIN_TOP + CONFIG_LINE_H,
-              PX_MICRO, colour);
+    font_text(line, r.x + PANEL_PAD, y, PX_MICRO, colour);
+
+    y += CONFIG_LINE_H;
+
+    /*
+     * The controls are not printed anywhere else. One quiet line teaches the
+     * two-button model, and the restore state sits beside it so a user can see
+     * whether there is a way back before making a change (D70).
+     */
+    if (read_only != NULL)
+        font_text("TRIANGLE SESSION", r.x + PANEL_PAD, y, PX_MICRO, C_DIM);
+    else
+        font_text("CROSS CHANGE   TRIANGLE SESSION", r.x + PANEL_PAD, y,
+                  PX_MICRO, C_DIM);
+
+    font_text_right(g_editor.undo_available ? "UNDO READY" : "NO RESTORE POINT",
+                    r.x + r.w - PANEL_PAD, y, PX_MICRO, C_DIM);
 }
 
 static void draw_empty_state(Rect r)
 {
-    float y = r.y + PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2;
+    float y = r.y + ROWS_TOP;
 
     if (g_editor.source[0] == '\0') {
         font_text("NO CONFIG.TXT FOUND", r.x + PANEL_PAD, y, PX_MICRO,
@@ -333,7 +343,7 @@ void plugins_screen_draw(const UiState *ui)
         draw_empty_state(r);
 
     float y =
-        r.y + PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2 +
+        r.y + ROWS_TOP +
         (g_editor.row_count == 0 ? PLUGIN_EMPTY_H : 0.0f);
     int groups_drawn = 0;
 

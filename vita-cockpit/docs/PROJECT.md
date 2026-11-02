@@ -26,8 +26,8 @@ platform cannot report is omitted rather than approximated.
 | STORAGE | `ux0:`, `uma0:` used and total, with the unit chosen from each volume's size (GB or MB), segmented meters |
 | POWER | battery percent, charging state, temperature, voltage, cycles, health |
 | SYSTEM | firmware string, app run time, device model |
-| PLUGINS summary | a full-width block below both columns: activated count, group counts, and a config warning |
-| PLUGINS tab | the full config ledger, grouped by load target, with status badges, greyed/active controls, lock/warn confirmations, pending state, read-only unlisted files, and the two config snapshots |
+| PLUGINS summary | a full-width block below both columns: loaded count, group counts, and a config warning |
+| PLUGINS tab | the full config ledger with loaded/next-boot badges, greyed/active controls, a confirmation and receipt for every change, a session sheet with reboot and one-step undo, read-only unlisted files, and the config snapshots |
 | FRAME | measured FPS, frame time, 20 s trace |
 
 The wall clock and the wordmark are header chrome, not a panel, so identity
@@ -78,12 +78,15 @@ FRAME strip stay pinned; a thin bar on the right shows position. Press L or R to
 switch between HOME and PLUGINS. The HOME `PLUGINS` block is read-only: it counts
 the launch set, and it sits below the fold, so scroll down to reach it. Pending
 edits are shown only on the PLUGINS tab that made them. On PLUGINS, up/down
-moves the selection, Cross toggles the selected plugin, and Circle cancels a
-confirmation. At the last row, another down press scrolls to the
-installed-but-unlisted files; Cross on a greyed control explains why it cannot
-act instead of writing. A change is written immediately and applies on the next
-boot. If a write fails, the message is `WRITE FAILED` followed by the stage
-(`OPEN`, `DATA`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, or `RESTORE`).
+moves the selection and Cross opens a confirmation for the selected row; every
+actional change confirms, names the next-boot effect, and opens a receipt after
+the write. `TRIANGLE` opens `PLUGIN SESSION`, where `REBOOT NOW` applies the
+changes and `UNDO LAST CHANGE` restores `config.txt.undo`; Circle cancels. At the
+last row, another down press scrolls to the installed-but-unlisted files; Cross
+on a greyed control explains why it cannot act instead of writing. A change is
+written immediately and applies on the next boot. If a write fails, the message
+names the stage (`OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`,
+`RESTORE`, or `UNDO`).
 
 Install by selecting the VPK in `ux0:data` inside VitaShell and pressing Cross.
 The bubble appears on LiveArea.
@@ -98,7 +101,7 @@ makes "which build is on the Vita?" answerable.
 The artifact is named:
 
 ```
-build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b39.vpk
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b44.vpk
 ```
 
 | Part | Source | Changes |
@@ -137,8 +140,8 @@ community knowledge.
 
 | Area | Status |
 |---|---|
-| Builds and packages | `[V]` clean build, 111.1 KB VPK (b39), no warnings |
-| Host tests (sampling, plugin model, snapshots, write transaction, input) | `[V]` `tools/test/run.sh`, 316 checks |
+| Builds and packages | `[V]` clean build, 117.0 KB VPK (b44), no warnings |
+| Host tests (sampling, plugin model, snapshots, undo, recovery, write transaction, input) | `[V]` `tools/test/run.sh`, 400 checks |
 | Plugin list (`ux0:` first, `ur0:` fallback) | `[V]` host harness keeps a 19-entry real config in full and groups it as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; host tests cover BOM, commented entries, long names, section mapping, priority merge, the 64-entry ceiling, full-path duplicate rows, `*!` halts, lock/warn policy, the two snapshots, and the exact `#` edit |
 | Clocks, memory, power APIs declared in SDK | `[V]` header inspection |
 | Clock row follows a runtime clock change | `[C]` — the getters are re-read every sample, so an overclock applied by a plugin should appear within ~100 ms without a restart; not yet observed on hardware |
@@ -146,8 +149,8 @@ community knowledge.
 | `sceIoDevctl("ux0:", 0x3001, …)` command | `[V]` `psp2/io/devctl.h` demonstrates it verbatim |
 | Storage result unit (bytes) | `[C]` — the one claim still unconfirmed |
 | Device model codes | `[V]` `psp2common/kernel/sysmem.h` |
-| Screen layout and typography | `[V]` host preview render, 15 states; the HOME summary block, badges, controls, modal, and CORE/POWER outlines (D53, D54, D66, D67) |
-| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the fixed tabbed build b39 is not on hardware yet |
+| Screen layout and typography | `[V]` host preview render, 19 states; loaded/next-boot badges, confirmation, receipt, session and restart modals, and CORE/POWER outlines (D53, D54, D66, D69-D71) |
+| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the production-hardened tabbed build b44 is not on hardware yet |
 | Config write path | `[C]` the adapter's rename-away swap and live read-back are implemented and build; host tests exercise the same transaction in the fake, not the SDK calls, and the target's rename semantics are unverified. A failure names the stage (`OPEN`, `DATA`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, `RESTORE`). |
 | STORAGE reads | `[V]` both volumes report on hardware under `UNSAFE` (D42); `ux0:` also works on the safe build via `sceAppMgrGetDevInfo` (D38) |
 | Behaviour not listed above | unverified |
@@ -158,8 +161,10 @@ correct to display. See `AGENTS.md` and `agent-wiki/01-platform.md`.
 
 The host tests (`tools/test/run.sh`) link the real `core/` against a fake port and
 assert the alert policy at its boundary, the failed-read path, the unit
-conversions, the history ring, the config model, both snapshots, the exact `#`
-edit, the write transaction and its restore path, and the input reducer. The host
+conversions, the history ring, the config model, the loaded/next-boot split, both
+snapshots, the one-step undo, interrupted-swap recovery, the ux0-unreadable rule,
+the exact `#` edit, the write transaction and its restore path, and the input
+reducer. The host
 preview (`tools/preview/run.sh`) renders the shipped composition against the same
 fake. Neither proves anything about the device: every reading in them is
 synthetic.
@@ -176,7 +181,13 @@ Panels degrade, they do not crash.
   return code, so a permission problem is not mistaken for a missing card.
 - A config write that fails leaves the original file untouched and shows
   `WRITE FAILED <stage>`; a snapshot failure shows `BACKUP WARNING` but never
-  locks the editor.
+  locks the editor. A failed restore says the config may be incomplete and tells
+  the user not to reboot.
+- `config.txt.old` is moved back before the config is declared missing. A
+  `ux0:` config that exists but cannot be read is read-only and named; the app
+  never writes the shadowed `ur0:` copy in its place.
+- `config.txt.undo` is written before every toggle and is the only in-app
+  restore source. `REBOOT NOW` is refused below 20 % battery unless charging.
 - A config that is too large, too long, or unreadable is shown read-only with the
   reason, never rewritten from a truncated read. A path before the first section
   is a warning, not a lock.
@@ -188,7 +199,7 @@ Panels degrade, they do not crash.
 
 | Step | Adds | Needs |
 |---|---|---|
-| v1 | the dashboard and the plugin manager | b39 builds and is host-tested; the fixed tabbed UI is pending the console check |
+| v1 | the dashboard and the plugin manager | b44 builds and is host-tested; the hardened tabbed UI is pending the console check |
 | v2 | app inventory, per-title storage | `sceAppMgrGetAppInfo`, directory walk of `ux0:app` |
 | v3 | network status | `SceNetCtl` |
 | v4 | theme switching, a second visual language | a theme abstraction in `gfx/theme` |

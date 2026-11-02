@@ -90,17 +90,37 @@ static void rebuild_rows(EditorState *e)
                 ++r->active_lines;
         }
 
-        if (l->active != l->launch_active)
-            r->pending = 1;
-
         l->row = ri;
     }
 
     for (int i = 0; i < e->row_count; ++i) {
         EditorRow *r = &e->rows[i];
+        int changed = 0;
 
         r->locked = tai_ieq(r->name, "henkaku.suprx");
         r->boot = is_boot_path(e, r->path);
+
+        /*
+         * "Loaded" is what the launch file activated, not what the file says
+         * now. A write changes the next boot, never the running process; the
+         * row must keep reporting the running set until the console restarts
+         * (D69).
+         */
+        for (int j = 0; j < e->line_count; ++j) {
+            const EditorLine *l = &e->lines[j];
+
+            if (l->kind != EDITOR_LINE_PATH || l->row != i || !l->reached)
+                continue;
+
+            if (l->launch_active)
+                r->loaded = 1;
+            if (l->active != l->launch_active)
+                changed = 1;
+        }
+
+        if (changed)
+            r->next_change = r->active_lines > 0 ? 1 : -1;
+        r->pending = r->next_change != 0;
 
         if (r->boot) {
             r->status = EDITOR_BOOT;
@@ -110,7 +130,7 @@ static void rebuild_rows(EditorState *e)
             r->status = EDITOR_MISSING;
         } else if (r->active_lines > 0 && r->active_lines < r->reached_lines) {
             r->status = EDITOR_PARTIAL;
-        } else if (r->active_lines > 0) {
+        } else if (r->loaded) {
             r->status = EDITOR_ACTIVATED;
         } else {
             r->status = EDITOR_DISABLED;
@@ -146,8 +166,9 @@ static void rebuild_rows(EditorState *e)
 }
 
 /*
- * The activated total is counted once per row, not once per line. A row with
- * several active lines must add one.
+ * The loaded total is counted once per row, not once per line. A row with
+ * several active lines must add one. It is the launch set, so a pending edit
+ * never moves it (D59, D69).
  */
 static void rebuild_counts(EditorState *e)
 {
@@ -156,12 +177,11 @@ static void rebuild_counts(EditorState *e)
 
     for (int i = 0; i < e->row_count; ++i) {
         EditorRow *r = &e->rows[i];
-        if (r->boot)
+        if (!r->loaded)
             continue;
-        if (r->status == EDITOR_ACTIVATED || r->status == EDITOR_PARTIAL) {
-            ++e->activated_total;
-            ++e->group_counts[r->section];
-        }
+
+        ++e->activated_total;
+        ++e->group_counts[r->section];
     }
 }
 
@@ -177,6 +197,7 @@ static void parse_text(EditorState *e, const char *text, int len, int initial)
     e->valid = 1;
     e->invalid = 0;
     e->lines_truncated = 0;
+    e->paths_truncated = 0;
     e->rows_truncated = 0;
     e->truncated = 0;
 
@@ -272,20 +293,27 @@ static void parse_text(EditorState *e, const char *text, int len, int initial)
 
             if (path_start < content_end &&
                 tai_path_valid(text + path_start, content_end - path_start)) {
-                l->kind = EDITOR_LINE_PATH;
-                l->active = active;
-                l->reached = have_section && !halted;
-                l->hash = hash;
-                l->hash_count = hash_count;
-                l->path_start = path_start;
+                if (content_end - path_start >= PLUGIN_PATH_MAX) {
+                    /*
+                     * One long path must not make the whole file read-only.
+                     * Skip the entry and warn, exactly as the HOME parser does
+                     * (D65, D71).
+                     */
+                    l->kind = EDITOR_LINE_COMMENT;
+                    e->paths_truncated = 1;
+                } else {
+                    l->kind = EDITOR_LINE_PATH;
+                    l->active = active;
+                    l->reached = have_section && !halted;
+                    l->hash = hash;
+                    l->hash_count = hash_count;
+                    l->path_start = path_start;
 
-                if (content_end - path_start >= PLUGIN_PATH_MAX)
-                    e->lines_truncated = 1;
-
-                tai_copy_slice(l->path, sizeof(l->path), text + path_start,
-                               content_end - path_start);
-                if (!have_section)
-                    e->valid = 0;
+                    tai_copy_slice(l->path, sizeof(l->path), text + path_start,
+                                   content_end - path_start);
+                    if (!have_section)
+                        e->valid = 0;
+                }
             } else {
                 l->kind = EDITOR_LINE_COMMENT;
             }
@@ -321,7 +349,7 @@ static void orphan_cb(const char *name, int is_dir, void *user)
         return;
     if (tai_ends_with(name, ".bak") || tai_ends_with(name, ".new") ||
         tai_ends_with(name, ".old") || tai_ends_with(name, ".original") ||
-        tai_ends_with(name, ".session"))
+        tai_ends_with(name, ".session") || tai_ends_with(name, ".undo"))
         return;
 
     if (e->orphan_count >= EDITOR_ORPHANS_MAX) {
@@ -374,37 +402,92 @@ static void sort_orphans(EditorState *e)
     }
 }
 
+static void editor_refresh_undo(void)
+{
+    static char buf[EDITOR_TEXT_MAX];
+    int n = 0;
+
+    g_editor.undo_available = 0;
+
+    if (g_editor.source[0] == '\0')
+        return;
+
+    if (platform_read_undo(g_editor.source, buf, (int)sizeof(buf), &n) !=
+        PLATFORM_READ_OK)
+        return;
+
+    if (n == g_editor.last_len &&
+        memcmp(buf, g_editor.last_text, (size_t)n) == 0)
+        return;
+
+    g_editor.undo_available = 1;
+}
+
 void editor_scan(void)
 {
     memset(&g_editor, 0, sizeof(g_editor));
 
     static char buf[EDITOR_TEXT_MAX];
     int n = 0;
-    int saw_unreadable = 0;
+
+    /*
+     * A crash or power loss between the two renames of the swap leaves the
+     * config at `.old` and the live name empty. Recover it before deciding the
+     * config is missing; otherwise the app would offer to create a new file
+     * while the user's bytes sit one name away (D71).
+     */
+    if (platform_recover_swap(CONFIG_UX0) > 0 ||
+        platform_recover_swap(CONFIG_UR0) > 0)
+        g_editor.recovered = 1;
 
     PlatformReadStatus status = platform_read_config(CONFIG_UX0, buf,
                                                      (int)sizeof(buf), &n);
 
-    if (status == PLATFORM_READ_UNREADABLE)
-        saw_unreadable = 1;
-
     if (status == PLATFORM_READ_OK || status == PLATFORM_READ_TOO_LARGE) {
         tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UX0);
         g_editor.source_ok = 1;
+    } else if (status == PLATFORM_READ_UNREADABLE) {
+        /*
+         * taiHEN tries ux0: first. If it exists but cannot be read, editing
+         * ur0: would write a file the boot never loads. Name the unreadable
+         * file and stop instead of silently switching mounts (D71).
+         */
+        tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UX0);
+        g_editor.unreadable = 1;
+        g_editor.read_only = 1;
     } else {
         status = platform_read_config(CONFIG_UR0, buf, (int)sizeof(buf), &n);
-        if (status == PLATFORM_READ_UNREADABLE)
-            saw_unreadable = 1;
+
         if (status == PLATFORM_READ_OK || status == PLATFORM_READ_TOO_LARGE) {
             tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UR0);
             g_editor.source_ok = 1;
+        } else if (status == PLATFORM_READ_UNREADABLE) {
+            tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UR0);
+            g_editor.unreadable = 1;
+            g_editor.read_only = 1;
         }
     }
 
     if (!g_editor.source_ok) {
         g_editor.read_only = 1;
         g_editor.invalid = 1;
-        g_editor.unreadable = saw_unreadable;
+
+        /*
+         * With no live config, the undo copy is the only way back. Keep the
+         * path that owns a snapshot so editor_undo can restore it even though
+         * the read-only gate refuses normal edits.
+         */
+        static char undo_buf[EDITOR_TEXT_MAX];
+        int undo_len = 0;
+
+        if (platform_read_undo(CONFIG_UX0, undo_buf, (int)sizeof(undo_buf),
+                               &undo_len) == PLATFORM_READ_OK) {
+            tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UX0);
+        } else if (platform_read_undo(CONFIG_UR0, undo_buf,
+                                      (int)sizeof(undo_buf),
+                                      &undo_len) == PLATFORM_READ_OK) {
+            tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UR0);
+        }
     } else if (status == PLATFORM_READ_TOO_LARGE) {
         g_editor.too_large = 1;
         g_editor.read_only = 1;
@@ -446,6 +529,8 @@ void editor_scan(void)
             g_editor.read_only = 1;
     }
 
+    editor_refresh_undo();
+
     if (strcmp(g_editor.source, CONFIG_UX0) == 0 &&
         platform_file_exists(CONFIG_UR0))
         tai_copy(g_editor.ignored, sizeof(g_editor.ignored), CONFIG_UR0);
@@ -477,7 +562,7 @@ const char *editor_readonly_reason(void)
     if (g_editor.too_large)
         return "CONFIG TOO LARGE";
     if (g_editor.lines_truncated)
-        return "CONFIG TOO LONG";
+        return "TOO MANY LINES";
     if (g_editor.rows_truncated)
         return "TOO MANY PLUGIN ROWS";
     if (g_editor.read_only)
@@ -499,10 +584,6 @@ int editor_row_actionable(int row)
 
     if (r->status == EDITOR_BOOT || r->status == EDITOR_NOT_REACHED)
         return 0;
-    if (r->status == EDITOR_MISSING && r->active_lines == 0)
-        return 0;
-    if (r->locked && r->active_lines == r->reached_lines)
-        return 0;
 
     return editor_next_action(row) >= 0;
 }
@@ -510,40 +591,56 @@ int editor_row_actionable(int row)
 int editor_next_action(int row)
 {
     if (row < 0 || row >= g_editor.row_count)
-        return -1;
+        return EDITOR_ACTION_NONE;
 
     if (!g_editor.source_ok || g_editor.read_only || g_editor.too_large ||
         g_editor.lines_truncated || g_editor.rows_truncated)
-        return -1;
+        return EDITOR_ACTION_NONE;
 
     const EditorRow *r = &g_editor.rows[row];
 
     if (r->status == EDITOR_BOOT || r->status == EDITOR_NOT_REACHED)
-        return -1;
+        return EDITOR_ACTION_NONE;
+
+    /*
+     * A missing file cannot be enabled. This must come before the locked rule:
+     * a locked row that is also missing would otherwise advertise ENABLE and
+     * then refuse it.
+     */
+    if (r->status == EDITOR_MISSING)
+        return (r->active_lines > 0 && !r->locked) ? EDITOR_ACTION_DISABLE
+                                                   : EDITOR_ACTION_NONE;
 
     if (r->locked)
-        return r->active_lines < r->reached_lines ? 1 : -1;
-
-    if (r->status == EDITOR_MISSING)
-        return r->active_lines > 0 ? 0 : -1;
+        return r->active_lines < r->reached_lines ? EDITOR_ACTION_ENABLE
+                                                  : EDITOR_ACTION_NONE;
 
     if (r->reached_lines == 0)
-        return -1;
+        return EDITOR_ACTION_NONE;
 
-    return r->active_lines == r->reached_lines ? 0 : 1;
+    /*
+     * A mixed row is safer to switch off than to complete: completing it adds
+     * a load context the user may not have intended, and the confirm cannot
+     * show every context. Disable first; a second press enables all lines.
+     */
+    if (r->status == EDITOR_PARTIAL)
+        return EDITOR_ACTION_DISABLE;
+
+    return r->active_lines == r->reached_lines ? EDITOR_ACTION_DISABLE
+                                               : EDITOR_ACTION_ENABLE;
 }
 
 const char *editor_status_text(EditorStatus status)
 {
     switch (status) {
     case EDITOR_ACTIVATED:
-        return "ACTIVATED";
+        return "LOADED";
     case EDITOR_DISABLED:
-        return "DISABLED";
+        return "OFF";
     case EDITOR_MISSING:
         return "MISSING";
     case EDITOR_PARTIAL:
-        return "PARTIAL";
+        return "MIXED";
     case EDITOR_NOT_REACHED:
         return "NOT REACHED";
     case EDITOR_BOOT:
@@ -571,13 +668,32 @@ const char *editor_section_text(PluginSection section)
     }
 }
 
+const char *editor_row_label(int row)
+{
+    if (row < 0 || row >= g_editor.row_count)
+        return "--";
+
+    const EditorRow *r = &g_editor.rows[row];
+
+    /*
+     * Two mounts can hold the same basename. The row then shows the full path
+     * so the confirmation names the file that will actually change.
+     */
+    for (int i = 0; i < g_editor.row_count; ++i) {
+        if (i != row && tai_ieq(g_editor.rows[i].name, r->name))
+            return r->path;
+    }
+
+    return r->name;
+}
+
 const char *editor_action_text(int row)
 {
     if (row < 0 || row >= g_editor.row_count)
         return "--";
 
     if (editor_readonly_reason() != NULL)
-        return "LOCKED";
+        return "READ ONLY";
 
     const EditorRow *r = &g_editor.rows[row];
 
@@ -585,15 +701,15 @@ const char *editor_action_text(int row)
         return "BOOT";
     if (r->status == EDITOR_NOT_REACHED)
         return "--";
+    if (r->status == EDITOR_MISSING && editor_next_action(row) < 0)
+        return "MISSING";
     if (r->locked && r->active_lines == r->reached_lines)
         return "LOCKED";
-    if (r->status == EDITOR_MISSING && r->active_lines == 0)
-        return "MISSING";
 
     int action = editor_next_action(row);
-    if (action == 0)
+    if (action == EDITOR_ACTION_DISABLE)
         return "DISABLE";
-    if (action == 1)
+    if (action == EDITOR_ACTION_ENABLE)
         return "ENABLE";
 
     return "--";
@@ -611,16 +727,16 @@ const char *editor_action_reason(int row)
     const EditorRow *r = &g_editor.rows[row];
 
     if (r->status == EDITOR_BOOT)
-        return "BOOT MODULE. NOT EDITABLE HERE.";
+        return "THIS MODULE LOADS BEFORE TAIHEN. COCKPIT DOES NOT CHANGE IT.";
     if (r->status == EDITOR_NOT_REACHED)
-        return "AFTER A *! HALT. NOT LOADED.";
-    if (r->locked && r->active_lines == r->reached_lines)
-        return "HENKAKU IS THE SETTINGS UI. IT CANNOT BE DISABLED.";
-    if (r->status == EDITOR_MISSING && r->active_lines == 0)
+        return "A HALT LINE IN THE CONFIG. THIS ROW IS NOT LOADED.";
+    if (r->status == EDITOR_MISSING && editor_next_action(row) < 0)
         return "FILE IS MISSING FROM THE TAI DIRECTORY.";
+    if (r->locked && r->active_lines == r->reached_lines)
+        return "HENKAKU IS THE SETTINGS MENU AND RECOVERY PATH. IT CANNOT BE DISABLED.";
 
     if (editor_next_action(row) < 0)
-        return "THIS ROW HAS NO ACTION.";
+        return "COCKPIT CANNOT CHANGE THIS ROW.";
 
     return NULL;
 }
@@ -639,7 +755,7 @@ const char *editor_confirm_text(int row, int mode)
 
     if (is_storage_driver(r->name)) {
         return mode == 0
-                   ? "UX0 MAY NOT MOUNT NEXT BOOT. RECOVER WITH CARD OR PC."
+                   ? "UX0 MAY NOT MOUNT AFTER THE REBOOT. GAMES AND APPS ON THE CARD MAY NOT START."
                    : "THE STORAGE DRIVER LOADS AGAIN.";
     }
 
@@ -721,9 +837,21 @@ int editor_toggle(int row, int mode, char *err, int err_cap)
     }
 
     if (r->status == EDITOR_MISSING && mode == 1) {
-        if (err != NULL)
-            snprintf(err, (size_t)err_cap, "FILE IS MISSING");
-        return -1;
+        /*
+         * Status is cached at scan time. A file copied in over FTP after
+         * launch must not be enabled against a stale MISSING verdict, and a
+         * file deleted after launch must not be written active.
+         */
+        if (!platform_file_exists(r->path)) {
+            if (err != NULL)
+                snprintf(err, (size_t)err_cap, "FILE IS MISSING");
+            return -1;
+        }
+
+        if (r->active_lines > 0 && r->active_lines < r->reached_lines)
+            r->status = EDITOR_PARTIAL;
+        else
+            r->status = r->loaded ? EDITOR_ACTIVATED : EDITOR_DISABLED;
     }
 
     static char check[EDITOR_TEXT_MAX];
@@ -828,6 +956,21 @@ int editor_toggle(int row, int mode, char *err, int err_cap)
 
     next[out] = '\0';
 
+    /*
+     * Keep the pre-write bytes as the one-step undo. This must exist before
+     * the live file changes; if it cannot be written, the change is refused
+     * rather than made without a way back (D70).
+     */
+    if (platform_snapshot_undo(g_editor.source, g_editor.last_text,
+                               g_editor.last_len) != 0) {
+        for (int i = 0; i < g_editor.line_count; ++i)
+            g_editor.lines[i].active = old_active[i];
+        rebuild_rows(&g_editor);
+        if (err != NULL)
+            snprintf(err, (size_t)err_cap, "WRITE FAILED UNDO");
+        return -1;
+    }
+
     if (platform_write_config(g_editor.source, next, out) != 0) {
         for (int i = 0; i < g_editor.line_count; ++i)
             g_editor.lines[i].active = old_active[i];
@@ -851,6 +994,92 @@ int editor_toggle(int row, int mode, char *err, int err_cap)
     /* parse_text rebuilt rows with launch_active at zero; rebuild after the
      * session baseline is restored so PENDING means what it says. */
     rebuild_rows(&g_editor);
+    editor_refresh_undo();
+
+    return 0;
+}
+
+int editor_undo(char *err, int err_cap)
+{
+    static char buf[EDITOR_TEXT_MAX];
+    int n = 0;
+
+    if (err != NULL && err_cap > 0)
+        err[0] = '\0';
+
+    if (g_editor.source[0] == '\0') {
+        if (err != NULL)
+            snprintf(err, (size_t)err_cap, "NO CONFIG.TXT");
+        return -1;
+    }
+
+    if (platform_read_undo(g_editor.source, buf, (int)sizeof(buf), &n) !=
+        PLATFORM_READ_OK) {
+        if (err != NULL)
+            snprintf(err, (size_t)err_cap, "NO RESTORE POINT");
+        return -1;
+    }
+
+    /*
+     * Never overwrite a file that changed since the scan. The undo is one
+     * press away from a destructive write; a stale view is not permission.
+     */
+    if (g_editor.source_ok) {
+        static char live[EDITOR_TEXT_MAX];
+        int live_len = 0;
+
+        if (platform_read_config(g_editor.source, live, (int)sizeof(live),
+                                 &live_len) != PLATFORM_READ_OK ||
+            live_len != g_editor.last_len ||
+            memcmp(live, g_editor.last_text, (size_t)live_len) != 0) {
+            if (err != NULL)
+                snprintf(err, (size_t)err_cap,
+                         "CONFIG CHANGED ON DISK. NOTHING RESTORED.");
+            return -1;
+        }
+    }
+
+    if (n >= EDITOR_TEXT_MAX - 1) {
+        if (err != NULL)
+            snprintf(err, (size_t)err_cap, "RESTORE POINT TOO LARGE");
+        return -1;
+    }
+
+    if (platform_write_config(g_editor.source, buf, n) != 0) {
+        if (err != NULL)
+            snprintf(err, (size_t)err_cap, "WRITE FAILED %s",
+                     platform_write_error());
+        return -1;
+    }
+
+    /*
+     * Re-read instead of patching the in-memory model when there was no live
+     * config: the scan owns every derived field. When the session is intact,
+     * keep the launch baseline so LOADED still describes the running set and
+     * the bad session snapshot is not overwritten by the restore.
+     */
+    if (!g_editor.source_ok) {
+        editor_scan();
+        return 0;
+    }
+
+    int launch_active[EDITOR_LINES_MAX] = {0};
+    int line_count = g_editor.line_count;
+
+    for (int i = 0; i < line_count; ++i)
+        launch_active[i] = g_editor.lines[i].launch_active;
+
+    memcpy(g_editor.last_text, buf, (size_t)n);
+    g_editor.last_text[n] = '\0';
+    g_editor.last_len = n;
+    parse_text(&g_editor, buf, n, 0);
+
+    for (int i = 0; i < line_count && i < g_editor.line_count; ++i)
+        g_editor.lines[i].launch_active = launch_active[i];
+
+    rebuild_rows(&g_editor);
+    platform_remove_undo(g_editor.source);
+    editor_refresh_undo();
 
     return 0;
 }

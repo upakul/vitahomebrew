@@ -17,7 +17,8 @@ typedef enum {
     INPUT_UP,
     INPUT_DOWN,
     INPUT_ACCEPT,
-    INPUT_CANCEL
+    INPUT_CANCEL,
+    INPUT_OPTIONS
 } InputEvent;
 
 typedef struct {
@@ -27,6 +28,7 @@ typedef struct {
     int right;
     int accept;
     int cancel;
+    int options;
     float repeat;
 } InputState;
 
@@ -36,11 +38,13 @@ typedef struct {
 void input_reset(InputState *state);
 
 /*
- * `modal` true means only accept and cancel pass through; every navigation
- * event is swallowed. The opening press is already in the previous state, so
- * the modal cannot accept itself on the next frame.
+ * `modal` true means only accept and cancel pass through. `modal_nav` also
+ * allows up/down, for a modal with a selectable action list. The opening press
+ * is already in the previous state, so the modal cannot accept itself on the
+ * next frame.
  */
 InputEvent input_update(InputState *state, int up, int down, int left, int right,
-                        int accept, int cancel, int modal, float dt);
+                        int accept, int cancel, int options, int modal,
+                        int modal_nav, float dt);
 
 #endif

@@ -37,8 +37,8 @@ change written to the active config and applied on the next boot.
 - **Auth:** UNSAFE eboot by default (`0x2F00000000000001`), because `uma0:`
   capacity needs `sceIoDevctl` (D42). `./build.sh --safe` builds the
   restricted `0x2F00000000000002` variant.
-- **Status:** builds and packages (111.1 KB VPK, b39), runs on the 3.65 console at
-  b13; 316 host checks and 15 previews pass. The fixed tabbed build is pending
+- **Status:** builds and packages (117.0 KB VPK, b44), runs on the 3.65 console at
+  b13; 400 host checks and 19 previews pass. The hardened tabbed build is pending
   the on-console check.
 
 The HOME `PLUGINS` block sits below STORAGE and SYSTEM, spanning both columns. It
@@ -46,24 +46,31 @@ shows the activated count at primary scale, `PLUGINS ONLINE`, the non-empty grou
 counts, and a config warning. It reports the launch set and is read-only; scroll
 HOME down to it. Pending edits appear only on the PLUGINS tab that made them.
 
-The plugin screen resolves the active config the way taiHEN does — `ux0:` first,
-`ur0:` fallback — and names any ignored file. It lists every path in that config,
-active or commented, grouped by load target, and one row per unique path. Each row
-has a status badge (`ACTIVATED`, `DISABLED`, `MISSING`, `PARTIAL`, `NOT REACHED`,
-`BOOT`) and an action control. The control is greyed when the action is
-impossible: a missing inactive file cannot be enabled, a boot module cannot be
-toggled, and a missing active file can only be disabled. `henkaku.suprx` and the
+The plugin screen resolves the active config the way taiHEN does — `ux0:`
+first, `ur0:` fallback — and names any ignored file. It lists every path in that
+config, active or commented, grouped by load target, and one row per unique path.
+Each row reports what is running (`LOADED`, `OFF`, `MIXED`, `MISSING`, `NOT
+REACHED`, `BOOT`) and adds `NEXT ON` or `NEXT OFF` when the file differs from the
+launch set. Every actionable change opens a confirmation naming the file, the
+next-boot effect and the risk; a success opens a receipt. `TRIANGLE` opens a
+session sheet with `REBOOT NOW` and `UNDO LAST CHANGE`. The control is greyed
+when the action is impossible: a missing inactive file cannot be enabled, a boot
+module cannot be toggled, and a missing active file can only be disabled. `henkaku.suprx` and the
 three boot modules are locked; the DRM, storage, and other load-bearing plugins
 warn before a change.
 
 The first session writes `config.txt.original` once and never overwrites it;
-every session writes `config.txt.session` from the launch bytes. There are no
+every session writes `config.txt.session` from the launch bytes. Before every
+toggle the editor writes `config.txt.undo` from the verified pre-write bytes; it
+is the one-step undo offered in the session sheet. There are no
 `.bak`/`.1.bak`/`.2.bak` files. `boot_config.txt` is never opened, read, copied,
 or written.
 
-A failed write leaves the original in place and reports `WRITE FAILED` plus the
-stage that was refused: `OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`,
-`READBACK`, or `RESTORE`.
+A failed write leaves the original in place and reports the stage that was
+refused: `OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`,
+`RESTORE`, or `UNDO`. A missing live file with a surviving `.old` is repaired at
+the next scan. A `ux0:` config that exists but cannot be read is read-only and
+named; the app never writes the shadowed `ur0:` file in its place.
 
 ## Read in this order
 
@@ -81,7 +88,7 @@ stage that was refused: `OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`,
 ./build.sh --safe     # restricted eboot, marked -safe in the filename
 ```
 
-Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b39.vpk`.
+Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b44.vpk`.
 The build number counts distinct builds and is kept in `BUILD_NUMBER`: unchanged
 sources reuse the number, and only the newest VPK is kept (D46). Upload it with:
 
@@ -98,7 +105,8 @@ VitaShell must be running its FTP server on port 1337. The URL form is
 |---|---|
 | L / R | switch HOME / PLUGINS |
 | D-pad up/down, left stick | scroll HOME, or move the PLUGINS selection; at the last row it scrolls to the unlisted files |
-| Cross | toggle the selected plugin, or confirm a modal; on a greyed control it shows why it cannot act |
+| Cross | open the change confirmation, confirm a modal, or close a receipt |
+| Triangle | open `PLUGIN SESSION`: reboot, undo the last change, or close |
 | Circle | cancel a modal |
 | PS button | leave the app (system) |
 
@@ -111,7 +119,7 @@ VitaShell must be running its FTP server on port 1337. The URL form is
 Links the real `core/` against a fake port and asserts the sampling policy, the
 plugin config model, the exact `#` edit, BOM and invalid-path handling, the two
 snapshots, the transactional write and its failure/restore path, and the input
-reducer. Exits non-zero on failure. 316 checks.
+reducer. Exits non-zero on failure. 400 checks.
 
 ## Preview without hardware
 
@@ -120,14 +128,16 @@ reducer. Exits non-zero on failure. 316 checks.
 ```
 
 Renders the shipped composition (`app/screen.c`) through a software vita2d shim
-and the same fake platform, writing 15 scenes under `build/preview/`:
+and the same fake platform, writing 19 scenes under `build/preview/`:
 `preview-healthy.png`, `preview-alert.png`, `preview-home-plugins.png`,
 `preview-home-plugins-empty.png`, `preview-plugins.png`,
 `preview-plugins-bottom.png`, `preview-warning.png`, `preview-missing.png`,
 `preview-backup-warning.png`, `preview-groups.png`, `preview-duplicate.png`,
-`preview-confirm.png`, `preview-write-failure.png`, `preview-readonly.png`, and
-`preview-home-plugins-warning.png`. Each scene is produced by driving the fake
-port through the real sampler and policy, so a PNG proves the policy ran. Every
+`preview-plugins-next.png`, `preview-confirm.png`, `preview-receipt.png`,
+`preview-session.png`, `preview-restart.png`, `preview-write-failure.png`,
+`preview-readonly.png`, and `preview-home-plugins-warning.png`. Each scene is
+produced by driving the fake port through the real sampler and policy, so a PNG
+proves the policy ran. Every
 number in it is synthetic, so it proves nothing about the device — only about
 the screen.
 
@@ -137,7 +147,7 @@ the screen.
 src/
   main.c              composition root: vita2d init/teardown
   app/                lifecycle, frame loop, and screen_draw
-  core/               sampling policy, history, plugin config and catalog, the port
+  core/               sampling policy, history, plugin config and catalog, undo/recovery, the port
   gfx/                vita2d adapter: primitives, font, theme, layout
   panels/             one file per panel, the plugin ledger, the HOME summary, and the layout registry
   platform/           the SDK adapter, the only file that samples the device

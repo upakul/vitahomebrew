@@ -59,7 +59,7 @@ constructs and starts.
 | `core/metrics` | convert raw readings, maintain history, decide alerts | `core/*` |
 | `core/plugins` | parse the launch config, group by load target, resolve the activated set | `core/*` |
 | `core/tai_config.h` | shared taiHEN grammar: suffixes, section names, path keys | `core/plugins.h` |
-| `core/plugin_editor` | byte-preserving config model, rows, two snapshots, toggle plan | `core/*` |
+| `core/plugin_editor` | byte-preserving config model, loaded/next-boot rows, undo snapshots, toggle plan | `core/*` |
 | `core/input` | pad edges and repeats, no SDK types | libc |
 | `platform/platform_psp2` | implement the port against the SDK | `psp2/*`, `core/platform.h` |
 | `gfx/layout` | screen geometry constants shared by `panels/` and `ui/` | nothing |
@@ -72,7 +72,7 @@ constructs and starts.
 | `ui/header` | wordmark, clock, tabs, hazard band | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout`, `ui/tabbar` |
 | `ui/ui_state` | navigation state: tab, two scrolls, selection, modal | nothing |
 | `ui/tabbar` | tab labels and the PLUGINS header line | `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
-| `ui/modal` | confirmation and error panel | `gfx/*`, `ui/ui_state` |
+| `ui/modal` | confirmation, receipt, session, restart, error and info panels | `gfx/*`, `ui/ui_state` |
 | `app/screen` | one frame: header, active tab, strip, modal, sweep | `gfx/*`, `panels/*`, `ui/*`, `ui/ui_state` |
 | `app/app` | lifecycle, fixed-rate scheduler, frame loop, input, UiState | everything below |
 | `main.c` | `vita2d_init()`, `app_run()`, `vita2d_fini()` | `app/app`, `vita2d.h` |
@@ -134,6 +134,12 @@ int platform_write_config(const char *path, const char *text, int len);
 const char *platform_write_error(void);
 int platform_backup_config(const char *path, const char *text, int len,
                            int *original_ok, int *session_ok);
+int platform_recover_swap(const char *path);
+int platform_snapshot_undo(const char *path, const char *text, int len);
+PlatformReadStatus platform_read_undo(const char *path, char *buf, int cap,
+                                      int *out_len);
+int platform_remove_undo(const char *path);
+int platform_request_reboot(void);
 
 typedef void (*PlatformDirCallback)(const char *name, int is_dir, void *user);
 int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user);
@@ -146,6 +152,9 @@ absent, empty, too-large, and unreadable; a short read is unreadable.
 moves the sibling into place, and reads the live file back; `platform_write_error`
 names the stage that failed so a console report is actionable. `platform_backup_config`
 writes `config.txt.original` once and `config.txt.session` every launch.
+`platform_snapshot_undo` writes the one-step `config.txt.undo` before a toggle;
+`platform_recover_swap` repairs a live file left absent by an interrupted swap.
+`platform_request_reboot` is the only SDK call that can cold-reset the console;
 `platform_list_dir` feeds the orphan section without exposing `SceUID` or
 `SceIoDirent`.
 
@@ -230,6 +239,9 @@ draw. Sampling is the only writer.
 | `sceKernelGetModel()` cannot separate PCH-1000 from PCH-2000 | `[V]` one code for both | `platform_psp2.c` |
 | `sceIoRename` to an absent target | `[C]` the fake exercises the transaction; the SDK call is not run on hardware | `platform_psp2.c` |
 | Replacing the live config without rename-over | `[C]` the rename-away swap is implemented; the target's rename semantics are unverified | `platform_psp2.c` |
+| `scePowerRequestColdReset` exists | `[V]` `psp2/power.h`; linked from `ScePower` | `platform_psp2.c` |
+| A userland UNSAFE eboot may cold-reset on 3.65 Enso | `[C]` the header says it always returns 0; the reset itself is unverified | `platform_psp2.c` |
+| `sceIoSyncByFd` flushes data before close | `[V]` declared in `psp2/io/fcntl.h`; its effect is best-effort here | `platform_psp2.c` |
 | `boot_config.txt` is never opened | `[V]` no source path names it | `core/plugin_editor.c` |
 | No userland CPU-load API exists | `[V]` absent from `psp2/` | — |
 
@@ -242,8 +254,9 @@ direction — marking as community knowledge something the SDK declares:
   `SCE_KERNEL_MODEL_VITATV` in `psp2common/kernel/sysmem.h`, reached through the
   `psp2/kernel/sysmem.h` include the adapter already had.
 
-Only two claims remain `[C]`: the devctl byte unit, and the target's
-`sceIoRename`/replace semantics. The read path no longer depends on
+The file and power claims remain `[C]`: the devctl byte unit, the target's
+`sceIoRename`/replace semantics, whether a userland UNSAFE eboot may cold-reset,
+and how completely `sceIoSyncByFd` flushes. The read path no longer depends on
 `sceIoGetstat` succeeding before `sceIoOpen`, and the normal write path no longer
 renames over an existing file.
 

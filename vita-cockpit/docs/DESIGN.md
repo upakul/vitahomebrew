@@ -122,7 +122,7 @@ else must shrink.
 | `C_WHITE` | `#EDEDF0` | numeric values |
 | `C_YELLOW` | `#FCEE0A` | primary — wordmark, hero accents, active tab, warning, missing/partial status, pending |
 | `C_CYAN` | `#2AD8E8` | machine data, group headers, boot status, disable control |
-| `C_GREEN` | `#3BE07A` | status only: activated plugin, activated count, enable control |
+| `C_GREEN` | `#3BE07A` | status only: loaded plugin, loaded count, enable control |
 
 `C_DIM` was `#43444F` until the host preview measured it at roughly 2:1 contrast
 against `C_PANEL` — unreadable at 10 px on a 5-inch screen, and the clock
@@ -290,15 +290,17 @@ hit: the group line is one line regardless of plugin count.
 ### PLUGINS tab
 
 The tab is a full-width panel at x 18, w 924, starting at canvas y 0. Its height
-is computed, not compiled in: `41 + 14 × 2 + 8 + 26 × groups + 52 × rows +
+is computed, not compiled in: `41 + 14 × 3 + 8 + 26 × groups + 52 × rows +
 10 × (groups − 1)` plus the empty state or orphan section and a 16 px bottom
 margin. The band clips it and the scrollbar follows `plugins_max_scroll()`.
 
-The panel header has two lines. The first names the active config and, when both
-exist, the ignored one: `SOURCE ur0:tai/config.txt  IGNORED ux0:tai/config.txt`.
-The second is the state: `9 ROWS  7 ACTIVATED  0 PENDING  ORIGINAL OK  SESSION OK`.
-A read-only file replaces it with `READ ONLY - <reason>`; a backup failure adds
-`BACKUP WARNING` but leaves the rows editable.
+The panel header has three lines. The first names the active config and, when
+both exist, the ignored one: `USING ur0:tai/config.txt   ux0:tai/config.txt IS
+NOT USED`; `RECOVERED` is appended when an interrupted swap was repaired. The
+second is the state: `9 ROWS  7 LOADED  1 NEXT BOOT`. A read-only file replaces
+it with `READ ONLY - <reason>`; a config or backup warning appends its token but
+leaves the rows editable. The third is the control hint `CROSS CHANGE   TRIANGLE
+SESSION` on the left and `UNDO READY` or `NO RESTORE POINT` on the right.
 
 Rows are grouped by the most privileged line that names the path: KERNEL,
 SYSTEM (`*main`), SYSTEM APPS (`*NPXS*`), ALL TITLES (`*ALL`), and TITLES. Each
@@ -308,25 +310,28 @@ several targets is one row (D51, D56).
 A row is a two-line entry. The first line is a 6 px status square, the display
 name at label scale (micro and truncated if it does not fit), and the action
 control at the right. The second line is the catalog description or `N/A` at
-micro scale on the left and the status badge on the right. The name is the
+micro scale on the left and the status badges on the right. The name is the
 basename; when two rows share a basename the full path is shown.
 
-Status badges are `ACTIVATED` (`C_GREEN`), `DISABLED` (`C_DIM`), `MISSING`
-(`C_YELLOW`), `PARTIAL` (`C_YELLOW`), `NOT REACHED` (`C_DIM`), and `BOOT`
-(`C_CYAN`). The badge is a 12 px tinted fill in the status colour with the label
-in the same colour. A pending change adds a yellow `PENDING` badge to its left
-(D66).
+Status badges report the running set, not the file being edited: `LOADED`
+(`C_GREEN`), `OFF` (`C_DIM`), `MIXED` (`C_YELLOW`), `MISSING` (`C_YELLOW`),
+`NOT REACHED` (`C_DIM`), and `BOOT` (`C_CYAN`). A row whose file now differs
+from the launch pattern adds a yellow `NEXT ON` or `NEXT OFF` badge to its left
+(D69). This is what keeps a disabled plugin reading `LOADED` until the reboot
+that actually unloads it.
 
 The action control is a 78 × 16 box at the first line's right. `ENABLE` is
-`C_GREEN`, `DISABLE` is `C_CYAN`; `LOCKED`, `MISSING`, `BOOT`, and `--` are
-`C_HAIR` fill with `C_DIM` text and perform nothing. Cross on a greyed control
-opens `CANNOT CHANGE` with `editor_action_reason()`; it never writes. A missing
-active row can be disabled; a missing inactive row cannot be enabled (D66).
+`C_GREEN`, `DISABLE` is `C_CYAN`; `LOCKED`, `MISSING`, `BOOT`, `READ ONLY`, and
+`--` are `C_HAIR` fill with `C_DIM` text and perform nothing. Cross on a greyed
+control opens `CANNOT CHANGE` with `editor_action_reason()`; it never writes. A
+missing active row can be disabled; a missing inactive row cannot be enabled. A
+`MIXED` row disables first, because completing it would add a load context the
+confirmation cannot fully describe (D66, D69).
 
-The selection cursor is a 2 px `C_WHITE` left bar spanning both lines, dimmed on
-a row the policy will not act on. Every row is selectable. The cursor owns the
-scroll; at the last row a further Down scrolls the canvas to the orphan section,
-and Cross is ignored while the selected row is off-screen.
+The selection cursor is a 2 px `C_WHITE` left bar spanning both lines, on every
+row. Every row is selectable. The cursor owns the scroll; at the last row a
+further Down scrolls the canvas to the orphan section, and Cross on an off-screen
+row scrolls back instead of acting.
 
 The orphan section follows the last group under the header
 `INSTALLED - NOT IN CONFIG`. Its caption is `NOT LISTED IN THE ACTIVE CONFIG`
@@ -336,21 +341,38 @@ claims a file is not loaded by Enso. Files in a shadowed directory are prefixed
 `SHADOWED`. The list is sorted, capped at 32, and states `MORE FILES NOT SHOWN`
 when the cap is reached. Orphans are read-only (D61).
 
-A confirmation is a centred 600 × 220 `theme_panel` with `CHROME_SATELLITE`, the
-action and file in the title (`DISABLE STORAGEMGR.SKPRX`), the message wrapped at
-the panel inset in micro scale, and `CROSS CONFIRM  CIRCLE CANCEL` at the bottom.
-An error uses the same panel with `NOT WRITTEN` and `CROSS CLOSE`; its body is
-`WRITE FAILED` followed by the stage (`OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`,
-`RENAME`, `READBACK`, or `RESTORE`). An information modal uses `CANNOT CHANGE`.
-The modal is drawn after the FRAME strip, so it is the topmost surface.
+Every actionable change opens a confirmation, even when the plugin is not on the
+warning list. The 600 × 240 `theme_panel` has the verb and file in the title
+(`DISABLE STORAGEMGR.SKPRX`), the consequence in micro scale: written now,
+applies at next boot, the row-specific warning, the KERNEL or SYSTEM warning, the
+hold-L escape hatch, the line count for a multi-line row, and the session change
+number. The key line names the verb (`CROSS CONFIRM  CIRCLE CANCEL`).
 
-The active config has two snapshots: `config.txt.original` is written once and
-never overwritten; `config.txt.session` is the session-start file and is
-rewritten each session. No `.bak`, `.1.bak`, or `.2.bak` is created. The adapter
-writes a verified `.new`, moves the original to `.old`, moves the sibling into
-place, and reads the live file back; a failure restores the original. The raw
-transaction files are excluded from the orphan list (D61, D64). `boot_config.txt`
-is never opened, read, copied, or written.
+A successful write opens `WRITTEN TO <path>. APPLIES AT THE NEXT BOOT. THE CHANGE
+IS SAVED - LEAVING COCKPIT DOES NOT CANCEL IT.` with `CROSS OK`. A failure opens
+`NOT WRITTEN`, names the row, states that the config is unchanged, and names the
+stage; a failed restore says the config may be incomplete and tells the user not
+to reboot (D70, D71).
+
+`TRIANGLE` opens `PLUGIN SESSION`: `N LOADED  M NEXT BOOT`, then `REBOOT NOW`
+when changes are waiting, `UNDO LAST CHANGE` when a snapshot differs from the
+live file, and `CLOSE`. Up/down moves the 2 px white selection bar; Cross selects,
+Circle closes. `REBOOT NOW` opens `RESTART THE VITA`, which names the number of
+changes, warns not to remove the card, and is refused below 20 % battery unless
+charging. `UNDO LAST CHANGE` asks once, restores `config.txt.undo` through the
+same verified write, and refuses if the live file changed on disk.
+
+The active config has two snapshots plus a one-step undo. `config.txt.original`
+is written once and never overwritten; `config.txt.session` is the session-start
+file and is rewritten each session; neither is offered as an in-app restore.
+`config.txt.undo` is written from the verified pre-write bytes before every
+toggle and is the only restore source in the UI. No `.bak`, `.1.bak`, or `.2.bak`
+is created. The adapter writes a verified `.new`, moves the original to `.old`,
+moves the sibling into place, and reads the live file back; a failure restores
+the original and a failure to restore is reported as `RESTORE`. At the next scan,
+an absent live file with a surviving `.old` is moved back before the config is
+declared missing. The raw transaction files are excluded from the orphan list
+(D61, D64, D71). `boot_config.txt` is never opened, read, copied, or written.
 
 Traces are a 2 px line, not a filled area. At 200 samples across ~500 px an
 area chart collapses into a solid block that hides the shape it exists to show

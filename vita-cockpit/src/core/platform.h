@@ -147,10 +147,10 @@ PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
 int platform_write_config(const char *path, const char *text, int len);
 
 /*
- * The stage of the last platform_write_config failure: "OPEN", "WRITE",
- * "VERIFY", "MOVE", "RENAME", "READBACK", or "RESTORE". "NONE" after a
- * success. The editor appends it to WRITE FAILED so a console report names the
- * SDK call that was refused.
+ * The stage of the last platform_write_config failure: "ARGS", "PATH", "OLD",
+ * "OPEN", "DATA", "CLOSE", "VERIFY", "MOVE", "RENAME", "READBACK", or
+ * "RESTORE". "NONE" after a success. The editor appends it to WRITE FAILED so a
+ * console report names the SDK call that was refused.
  */
 const char *platform_write_error(void);
 
@@ -166,6 +166,30 @@ const char *platform_write_error(void);
  */
 int platform_backup_config(const char *path, const char *text, int len,
                            int *original_ok, int *session_ok);
+
+/*
+ * Move `<path>.old` back to `<path>` when the live file is absent and the
+ * sibling exists. Returns 1 when a config was recovered, 0 when there was
+ * nothing to recover, negative when the rename failed.
+ */
+int platform_recover_swap(const char *path);
+
+/*
+ * The one-step undo copy, `<path>.undo`, written from the verified pre-write
+ * bytes. It is not part of the session rotation and is never touched by scan.
+ * `editor_toggle` refuses a change when the snapshot cannot be written.
+ */
+int platform_snapshot_undo(const char *path, const char *text, int len);
+PlatformReadStatus platform_read_undo(const char *path, char *buf, int cap,
+                                      int *out_len);
+int platform_remove_undo(const char *path);
+
+/*
+ * Ask the console to cold-reset. Returns the SDK result; 0 means the request
+ * was accepted, not that the reset is observable. The caller must still handle
+ * the case where the console keeps running (D70).
+ */
+int platform_request_reboot(void);
 
 /* Directory listing for the orphan section. Return negative on failure. */
 typedef void (*PlatformDirCallback)(const char *name, int is_dir, void *user);

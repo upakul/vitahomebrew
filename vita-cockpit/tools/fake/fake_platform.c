@@ -249,7 +249,15 @@ static FakeFile s_files[FAKE_FILES];
 static int s_fail_write;
 static int s_fail_backup;
 static int s_fail_read;
-static int s_fail_rename;
+static int s_fail_rename; /* 1 final move, 2 restore move */
+static int s_fail_read_path_on;
+static char s_fail_read_path[96];
+static int s_fail_write_path_on;
+static char s_fail_write_path[96];
+static int s_fail_rename_path_on;
+static char s_fail_rename_path[96];
+static int s_fail_rename_path_stage;
+static int s_fail_reboot;
 static const char *s_write_error = "NONE";
 
 static FakeFile *find_file(const char *path)
@@ -312,6 +320,14 @@ static void files_reset(void)
     s_fail_backup = 0;
     s_fail_read = 0;
     s_fail_rename = 0;
+    s_fail_read_path_on = 0;
+    s_fail_read_path[0] = '\0';
+    s_fail_write_path_on = 0;
+    s_fail_write_path[0] = '\0';
+    s_fail_rename_path_on = 0;
+    s_fail_rename_path[0] = '\0';
+    s_fail_rename_path_stage = 0;
+    s_fail_reboot = 0;
     s_write_error = "NONE";
 
     add_file("ur0:tai/config.txt", SAMPLE_CONFIG);
@@ -354,9 +370,43 @@ void fake_fail_read(int on)
     s_fail_read = on;
 }
 
-void fake_fail_rename(int on)
+void fake_fail_rename(int stage)
 {
-    s_fail_rename = on;
+    s_fail_rename = stage;
+}
+
+void fake_fail_read_path(const char *path, int on)
+{
+    s_fail_read_path_on = on;
+    s_fail_read_path[0] = '\0';
+
+    if (path != NULL)
+        snprintf(s_fail_read_path, sizeof(s_fail_read_path), "%s", path);
+}
+
+void fake_fail_reboot(int on)
+{
+    s_fail_reboot = on;
+}
+
+void fake_fail_write_path(const char *path, int on)
+{
+    s_fail_write_path_on = on;
+    s_fail_write_path[0] = '\0';
+
+    if (path != NULL)
+        snprintf(s_fail_write_path, sizeof(s_fail_write_path), "%s", path);
+}
+
+void fake_fail_rename_path(const char *path, int stage)
+{
+    s_fail_rename_path_on = stage != 0;
+    s_fail_rename_path[0] = '\0';
+
+    if (path != NULL)
+        snprintf(s_fail_rename_path, sizeof(s_fail_rename_path), "%s", path);
+
+    s_fail_rename_path_stage = stage;
 }
 
 PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
@@ -369,6 +419,9 @@ PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
     if (f == NULL)
         return PLATFORM_READ_ABSENT;
     if (s_fail_read)
+        return PLATFORM_READ_UNREADABLE;
+    if (s_fail_read_path_on && s_fail_read_path[0] != '\0' &&
+        strcmp(s_fail_read_path, path) == 0)
         return PLATFORM_READ_UNREADABLE;
     if (f->len >= cap)
         return PLATFORM_READ_TOO_LARGE;
@@ -397,14 +450,6 @@ static int rename_file(const char *src, const char *dst)
 {
     FakeFile *from = find_file(src);
     if (from == NULL)
-        return -1;
-
-    /*
-     * The fake models the one failure that matters: the final move of the
-     * verified .new file into place. The move-aside is allowed so the test can
-     * exercise the restore path.
-     */
-    if (s_fail_rename && strstr(src, ".new") != NULL)
         return -1;
 
     FakeFile *to = find_file(dst);
@@ -438,7 +483,9 @@ int platform_write_config(const char *path, const char *text, int len)
         return -1;
     }
 
-    if (s_fail_write) {
+    if (s_fail_write ||
+        (s_fail_write_path_on && s_fail_write_path[0] != '\0' &&
+         strcmp(s_fail_write_path, path) == 0)) {
         s_write_error = "DATA";
         return -1;
     }
@@ -481,19 +528,49 @@ int platform_write_config(const char *path, const char *text, int len)
         return -1;
     }
 
-    if (rename_file(tmp, path) != 0) {
-        if (had_original)
-            (void)rename_file(old, path);
+    int final_failed = s_fail_rename == 1 ||
+                       (s_fail_rename_path_on && s_fail_rename_path_stage == 1 &&
+                        strcmp(s_fail_rename_path, path) == 0);
+
+    if (!final_failed)
+        final_failed = rename_file(tmp, path) != 0;
+
+    if (final_failed) {
+        if (had_original) {
+            int restore_failed =
+                s_fail_rename == 2 ||
+                (s_fail_rename_path_on && s_fail_rename_path_stage == 2 &&
+                 strcmp(s_fail_rename_path, path) == 0) ||
+                rename_file(old, path) != 0;
+
+            if (restore_failed) {
+                remove_file(tmp);
+                s_write_error = "RESTORE";
+                return -1;
+            }
+        }
+
         remove_file(tmp);
         s_write_error = "RENAME";
         return -1;
     }
 
     if (verify_bytes(path, text, len) != 0) {
-        if (had_original)
-            (void)rename_file(old, path);
-        else
+        if (had_original) {
+            int restore_failed =
+                s_fail_rename == 2 ||
+                (s_fail_rename_path_on && s_fail_rename_path_stage == 2 &&
+                 strcmp(s_fail_rename_path, path) == 0) ||
+                rename_file(old, path) != 0;
+
+            if (restore_failed) {
+                s_write_error = "RESTORE";
+                return -1;
+            }
+        } else {
             remove_file(path);
+        }
+
         s_write_error = "READBACK";
         return -1;
     }
@@ -539,6 +616,64 @@ int platform_backup_config(const char *path, const char *text, int len,
         *session_ok = have_session;
 
     return (have_original && have_session) ? 0 : -1;
+}
+
+int platform_recover_swap(const char *path)
+{
+    char old[128];
+
+    if (path == NULL)
+        return 0;
+    if (snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old))
+        return 0;
+
+    if (find_file(path) != NULL || find_file(old) == NULL)
+        return 0;
+
+    return rename_file(old, path) == 0 ? 1 : -1;
+}
+
+int platform_snapshot_undo(const char *path, const char *text, int len)
+{
+    char dst[128];
+
+    if (path == NULL ||
+        snprintf(dst, sizeof(dst), "%s.undo", path) >= (int)sizeof(dst))
+        return -1;
+
+    return platform_write_config(dst, text, len);
+}
+
+PlatformReadStatus platform_read_undo(const char *path, char *buf, int cap,
+                                      int *out_len)
+{
+    char dst[128];
+
+    if (path == NULL ||
+        snprintf(dst, sizeof(dst), "%s.undo", path) >= (int)sizeof(dst))
+        return PLATFORM_READ_UNREADABLE;
+
+    return platform_read_config(dst, buf, cap, out_len);
+}
+
+int platform_remove_undo(const char *path)
+{
+    char dst[128];
+
+    if (path == NULL ||
+        snprintf(dst, sizeof(dst), "%s.undo", path) >= (int)sizeof(dst))
+        return -1;
+
+    if (find_file(dst) == NULL)
+        return 0;
+
+    remove_file(dst);
+    return 0;
+}
+
+int platform_request_reboot(void)
+{
+    return s_fail_reboot ? -1 : 0;
 }
 
 int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)

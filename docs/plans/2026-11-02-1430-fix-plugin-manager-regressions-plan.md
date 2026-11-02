@@ -14,6 +14,10 @@ execution: code
 > and SYSTEM, and the header carries only the tabs, clock and hazard band. The
 > parser, write, snapshot, and row fixes in this plan remain current.
 >
+> **Followed by:** `2026-11-03-1000-plugins-production-hardening-plan.md`
+> (D69-D71), which adds the running-set badge, confirmations and receipts, the
+> session sheet with reboot and undo, and interrupted-swap recovery.
+>
 > The result block at the end records the b35 build this plan produced. The
 > current artifact and check counts are in `PROJECTS.md`.
 

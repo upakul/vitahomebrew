@@ -492,6 +492,16 @@ static void test_plugins_scan(void)
     CHECK(g_plugins.config_found == 0);
     CHECK(g_plugins.config_unreadable == 1);
     fake_fail_read(0);
+
+    /* An unreadable ux0: must not silently fall through to ur0:. */
+    fake_reset();
+    fake_add_file("ux0:tai/config.txt", "*main\nux0:tai/kubridge.skprx\n");
+    fake_fail_read_path("ux0:tai/config.txt", 1);
+    plugins_scan();
+    CHECK(g_plugins.config_found == 0);
+    CHECK(g_plugins.config_unreadable == 1);
+    CHECK(g_plugins.count == 0);
+    fake_fail_read_path("ux0:tai/config.txt", 0);
 }
 
 static void test_plugins_path_truncation(void)

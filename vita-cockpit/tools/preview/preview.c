@@ -325,30 +325,79 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-duplicate.png", 3.5f, &ui))
         return 1;
 
+    /* The truth after one write: still loaded, turns off at the next boot. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    int row = editor_row_for_path("ur0:tai/kubridge.skprx");
+    ui.selection = row;
+    char err[96];
+    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    if (!render(dir, "preview-plugins-next.png", 3.7f, &ui))
+        return 1;
+
     /* The warning confirmation, opened through the real policy. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     int warned = editor_row_for_path("ur0:tai/storagemgr.skprx");
     ui.selection = warned;
-    const char *message = editor_confirm_text(warned, 0);
-    modal_open_confirm(&ui, warned, 0, message);
+    modal_open_confirm(&ui, warned, 0,
+                       "WRITTEN NOW. APPLIES AT THE NEXT BOOT. UX0 MAY NOT "
+                       "MOUNT AFTER THE REBOOT. GAMES AND APPS ON THE CARD MAY "
+                       "NOT START. THIS IS CHANGE 1 THIS SESSION.");
     snprintf(ui.modal_title, sizeof(ui.modal_title), "DISABLE %s",
              g_editor.rows[warned].name);
     if (!render(dir, "preview-confirm.png", 4.0f, &ui))
         return 1;
 
-    /* A failed write must keep the row and show the error. */
+    /* The receipt: the file is saved; the running set is unchanged. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
-    int row = editor_row_for_path("ur0:tai/kubridge.skprx");
-    ui.selection = row;
-    fake_fail_write(1);
-    char err[64];
+    row = editor_row_for_path("ur0:tai/kubridge.skprx");
     (void)editor_toggle(row, 0, err, (int)sizeof(err));
-    modal_open_error(&ui, err);
+    modal_open_receipt(&ui, "DISABLED KUBRIDGE.SKPRX",
+                       "WRITTEN TO UR0:TAI/CONFIG.TXT. APPLIES AT THE NEXT "
+                       "BOOT. THE CHANGE IS SAVED - LEAVING COCKPIT DOES NOT "
+                       "CANCEL IT. 1 CHANGES WAIT FOR THE NEXT BOOT.");
+    if (!render(dir, "preview-receipt.png", 4.2f, &ui))
+        return 1;
+
+    /* The session sheet: reboot and undo live here, not on the row. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    row = editor_row_for_path("ur0:tai/kubridge.skprx");
+    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    const char *choices[3] = {"REBOOT NOW", "UNDO LAST CHANGE", "CLOSE"};
+    modal_open_session(&ui,
+                       "7 LOADED   1 NEXT BOOT. AN UNDO SNAPSHOT IS AVAILABLE.",
+                       choices, 3);
+    if (!render(dir, "preview-session.png", 4.4f, &ui))
+        return 1;
+
+    /* The restart confirmation, with the card warning. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    row = editor_row_for_path("ur0:tai/kubridge.skprx");
+    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    modal_open_restart(&ui,
+                       "THE CONSOLE WILL RESTART NOW. 1 CHANGES WILL APPLY AT "
+                       "BOOT. DO NOT REMOVE THE MEMORY CARD.");
+    if (!render(dir, "preview-restart.png", 4.6f, &ui))
+        return 1;
+
+    /* A failed write must keep the row and say the config is unchanged. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    row = editor_row_for_path("ur0:tai/kubridge.skprx");
+    ui.selection = row;
+    fake_fail_write_path("ur0:tai/config.txt.undo", 1);
+    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    fake_fail_write_path("ur0:tai/config.txt.undo", 0);
+    modal_open_error(&ui,
+                     "DISABLE KUBRIDGE.SKPRX FAILED. WRITE FAILED UNDO. THE "
+                     "CONFIG IS UNCHANGED. TRY AGAIN, OR CHECK THE TAI FOLDER "
+                     "IN VITASHELL.");
     if (!render(dir, "preview-write-failure.png", 5.0f, &ui))
         return 1;
-    fake_fail_write(0);
 
     /* A genuinely unreadable-to-the-parser config is read-only. */
     reset_scene(&ui);

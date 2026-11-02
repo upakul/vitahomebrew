@@ -33,6 +33,12 @@ typedef enum {
     EDITOR_BOOT,
 } EditorStatus;
 
+typedef enum {
+    EDITOR_ACTION_NONE = -1,
+    EDITOR_ACTION_DISABLE = 0,
+    EDITOR_ACTION_ENABLE = 1,
+} EditorAction;
+
 typedef struct {
     int start;       /* first byte of the line */
     int len;         /* bytes before the line ending */
@@ -63,7 +69,9 @@ typedef struct {
     int first_line;
     int locked;
     int boot;
-    int pending;
+    int loaded;      /* active in the launch file: what is running now */
+    int next_change; /* -1 off at boot, +1 on at boot, 0 no change */
+    int pending;     /* next_change != 0 */
 } EditorRow;
 
 typedef struct {
@@ -81,6 +89,7 @@ typedef struct {
     int too_large;
     int invalid;      /* warning only: a path before the first section */
     int unreadable;
+    int paths_truncated; /* a path was too long and was skipped */
     int orphans_unverified;
     int truncated;        /* rows were dropped by the row ceiling */
     int rows_truncated;
@@ -88,6 +97,8 @@ typedef struct {
     int backup_warning;
     int backup_original_ok;
     int backup_session_ok;
+    int undo_available; /* a .undo snapshot differs from the live file */
+    int recovered;      /* a .old file was moved back into place at scan */
 
     EditorLine lines[EDITOR_LINES_MAX];
     int line_count;
@@ -116,12 +127,21 @@ void editor_scan(void);
  */
 int editor_toggle(int row, int mode, char *err, int err_cap);
 
+/*
+ * Restore the active config from `config.txt.undo`, the pre-write snapshot.
+ * One step only: the snapshot is not rotated. Returns 0 on success.
+ */
+int editor_undo(char *err, int err_cap);
+
 /* 0 disable, 1 enable, -1 no action. */
 int editor_next_action(int row);
 
 int editor_row_actionable(int row);
 const char *editor_status_text(EditorStatus status);
 const char *editor_section_text(PluginSection section);
+
+/* The basename, or the full path when two rows share a basename. */
+const char *editor_row_label(int row);
 
 /* The label for the row's action control: ENABLE, DISABLE, LOCKED, ... */
 const char *editor_action_text(int row);

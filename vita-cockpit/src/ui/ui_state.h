@@ -17,8 +17,14 @@ typedef enum {
     UI_MODAL_NONE = 0,
     UI_MODAL_CONFIRM,
     UI_MODAL_ERROR,
-    UI_MODAL_INFO
+    UI_MODAL_INFO,
+    UI_MODAL_RECEIPT,
+    UI_MODAL_SESSION,
+    UI_MODAL_RESTART
 } UiModal;
+
+#define UI_MODAL_CHOICES_MAX 3
+#define UI_MODAL_CHOICE_TEXT 32
 
 typedef struct {
     UiTab tab;
@@ -28,9 +34,12 @@ typedef struct {
 
     UiModal modal;
     int modal_row;
-    int modal_mode; /* 0 disable, 1 enable, 2 restore */
+    int modal_mode; /* EditorAction, or 2 for undo */
+    int modal_choice;
+    int modal_choice_count;
+    char modal_choices[UI_MODAL_CHOICES_MAX][UI_MODAL_CHOICE_TEXT];
     char modal_title[64];
-    char modal_body[256];
+    char modal_body[512];
 } UiState;
 
 #endif

@@ -14,7 +14,8 @@ static int pressed(int now, int before)
 }
 
 InputEvent input_update(InputState *state, int up, int down, int left, int right,
-                        int accept, int cancel, int modal, float dt)
+                        int accept, int cancel, int options, int modal,
+                        int modal_nav, float dt)
 {
     if (state == NULL)
         return INPUT_NONE;
@@ -22,10 +23,25 @@ InputEvent input_update(InputState *state, int up, int down, int left, int right
     InputEvent event = INPUT_NONE;
 
     if (modal) {
-        if (pressed(accept, state->accept))
+        if (pressed(accept, state->accept)) {
             event = INPUT_ACCEPT;
-        else if (pressed(cancel, state->cancel))
+        } else if (pressed(cancel, state->cancel)) {
             event = INPUT_CANCEL;
+        } else if (modal_nav && pressed(up, state->up)) {
+            event = INPUT_UP;
+            state->repeat = 0.0f;
+        } else if (modal_nav && pressed(down, state->down)) {
+            event = INPUT_DOWN;
+            state->repeat = 0.0f;
+        } else if (modal_nav && (up || down)) {
+            state->repeat += dt;
+            if (state->repeat >= INPUT_REPEAT_DELAY) {
+                event = up ? INPUT_UP : INPUT_DOWN;
+                state->repeat = INPUT_REPEAT_DELAY - INPUT_REPEAT_RATE;
+            }
+        } else {
+            state->repeat = 0.0f;
+        }
     } else if (pressed(left, state->left)) {
         event = INPUT_TAB_LEFT;
     } else if (pressed(right, state->right)) {
@@ -34,6 +50,8 @@ InputEvent input_update(InputState *state, int up, int down, int left, int right
         event = INPUT_ACCEPT;
     } else if (pressed(cancel, state->cancel)) {
         event = INPUT_CANCEL;
+    } else if (pressed(options, state->options)) {
+        event = INPUT_OPTIONS;
     } else if (pressed(up, state->up)) {
         event = INPUT_UP;
         state->repeat = 0.0f;
@@ -56,6 +74,7 @@ InputEvent input_update(InputState *state, int up, int down, int left, int right
     state->right = right;
     state->accept = accept;
     state->cancel = cancel;
+    state->options = options;
 
     return event;
 }

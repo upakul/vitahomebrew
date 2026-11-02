@@ -207,7 +207,7 @@ from the console. Cyberpunk 2077 HUD as the visual reference.
 
 ### Status
 
-**Hardware-verified at b13; b39 is built and host-tested, pending the fixed
+**Hardware-verified at b13; b44 is built and host-tested, pending the hardened
 tabbed check.** Runs on the 3.65 console: every panel renders, and `ux0:` reads
 `17.7/119.3 GB` through `sceAppMgrGetDevInfo`. The shipped build is `UNSAFE` by
 default (D42) because `uma0:` capacity needs `sceIoDevctl`, which the safe authid
@@ -222,16 +222,19 @@ and scrolls with HOME; pending edits and every action are on the PLUGINS tab.
 PLUGINS resolves the active config the way taiHEN does (D55), lists every path
 active or commented, and groups by load target — KERNEL, SYSTEM, SYSTEM APPS,
 ALL TITLES, TITLES. One row per unique full path; a duplicate basename shows the
-full path. Every row has a status badge (`ACTIVATED`, `DISABLED`, `MISSING`,
-`PARTIAL`, `NOT REACHED`, `BOOT`) and an action control that is greyed when the
-action is impossible (D66). A missing active file can be disabled; a missing
-inactive file cannot be enabled. `henkaku.suprx` and the three boot modules are
+full path. Every row reports the running set (`LOADED`, `OFF`, `MIXED`, `MISSING`,
+`NOT REACHED`, `BOOT`) and adds `NEXT ON`/`NEXT OFF` when the edited file differs
+from launch (D69). Every change opens a confirmation and a receipt; `TRIANGLE`
+opens a session sheet with a battery-gated reboot and one-step undo (D70). A
+missing active file can be disabled; a missing inactive file cannot be enabled. `henkaku.suprx` and the three boot modules are
 locked; the DRM, storage, and other load-bearing plugins warn before a change
 (D58). The active config gets `config.txt.original` once and
-`config.txt.session` every launch (D61); `boot_config.txt` is never opened,
-read, or backed up. A write is a verified rename-away swap, and a failure names
-the stage (`OPEN`, `DATA`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, `RESTORE`)
-(D64).
+`config.txt.session` every launch (D61); `config.txt.undo` is written before
+every toggle and is the only in-app restore source. `boot_config.txt` is never
+opened, read, or backed up. A write is a verified rename-away swap; a failure
+names the stage (`OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`,
+`RESTORE`, `UNDO`). An interrupted swap is repaired from `.old` at the next scan,
+and an unreadable `ux0:` is never shadowed by `ur0:` (D64, D71).
 
 The route here was three hardware faults, each fixed by evidence rather than
 guesswork:
@@ -252,11 +255,11 @@ guesswork:
 
 | Path | What |
 |---|---|
-| `src/core/` | `platform.h` (the port), `metrics` (policy), `history` (ring), `plugins` (launch set + catalog), `tai_config.h` (shared grammar), `plugin_editor` (line model, two snapshots, toggle), `input` (edges and repeats) |
+| `src/core/` | `platform.h` (the port), `metrics` (policy), `history` (ring), `plugins` (launch set + catalog), `tai_config.h` (shared grammar), `plugin_editor` (line model, loaded/next-boot rows, snapshots and undo, toggle), `input` (edges and repeats) |
 | `src/platform/` | `platform_psp2.c`, the only SDK sampling and file adapter |
 | `src/gfx/` | `draw` (vita2d adapter), `font` (5×7 face), `theme` (palette, chrome, meters, traces) |
 | `src/panels/` | `core`, `storage`, `power`, `system`, `plugins` (the ledger), `plugins_summary` (the HOME block), `frame`, plus `registry.c` with the home layout table |
-| `src/ui/` | `header`, `tabbar` (tabs and the PLUGINS header line), `modal` |
+| `src/ui/` | `header`, `tabbar`, `modal` (confirm, receipt, session, restart, error) |
 | `src/app/` | lifecycle, frame loop, `UiState`, and `screen_draw` |
 | `tools/fake/` | shared mutable port double |
 | `tools/test/` | host tests for the sampling policy, config model, snapshots, write transaction, and input |
@@ -269,15 +272,15 @@ cd vita-cockpit
 ./build.sh
 ```
 
-Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b39.vpk`).
+Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b44.vpk`).
 `build.sh` counts distinct builds in `BUILD_NUMBER`: unchanged sources reuse the
 number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-ip>`.
 
 ### Test and preview without hardware
 
 ```sh
-./tools/test/run.sh      # 316 assertions over the sampling policy, plugin editor, snapshots, write transaction, and input
-./tools/preview/run.sh   # 15 PNG states, with a 6,500 draw-call budget
+./tools/test/run.sh      # 400 assertions over the sampling policy, plugin editor, snapshots, undo, recovery, write transaction, and input
+./tools/preview/run.sh   # 19 PNG states, with a 6,500 draw-call budget
 ```
 
 ### Preview without hardware
@@ -287,7 +290,7 @@ cd vita-cockpit
 ./tools/preview/run.sh
 ```
 
-Writes 15 `build/preview/preview-*.png` states (the authoritative list is in `vita-cockpit/README.md`). It links the shipped
+Writes 19 `build/preview/preview-*.png` states (the authoritative list is in `vita-cockpit/README.md`). It links the shipped
 composition (`app/screen.c`), the real `theme`, `font`, `panels`, `header`, and
 `core`, a software vita2d shim, and the shared fake platform in `tools/fake/`.
 Each scene is produced by driving the fake port through `metrics_sample_slow()`,

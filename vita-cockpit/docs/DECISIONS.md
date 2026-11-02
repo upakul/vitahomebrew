@@ -1052,6 +1052,8 @@ lock the editor. The old `.bak` files from b28 are ignored and may be deleted by
 the user; COCKPIT does not touch them.
 **Rejected:** keeping the rotation; deleting `boot_config.txt.bak` from the app;
 backing up both mounts when only one is active.
+**Amended by D70:** `config.txt.undo` is the in-app restore point; `.original`
+and `.session` stay snapshots for inspection and PC recovery.
 
 ## D62 — The toggle is a two-state `#` edit
 
@@ -1106,6 +1108,9 @@ uses a rename over the live file when verification fails; if that is refused,
 both files are left for manual recovery.
 **Rejected:** truncate-and-write; trusting the rename's return value; a
 read-back only of the sibling.
+**Amended by D71:** a failed final rename reports `RESTORE` when the original
+could not be put back, and an absent live file with a surviving `.old` is
+recovered at the next scan.
 
 ## D65 — A BOM and a stray path are data, not corruption
 
@@ -1139,6 +1144,8 @@ row reaches the installed-but-unlisted section, and Cross is ignored when the
 selected row is off-screen.
 **Rejected:** a hidden Cross-only action; skipping locked rows in the cursor;
 a switch drawn from panel-local policy.
+**Amended by D69:** the status labels are `LOADED`/`OFF`/`MIXED`, and the
+per-row `PENDING` badge is `NEXT ON`/`NEXT OFF`.
 
 ## D67 — The plugin summary is a HOME block, not header chrome
 
@@ -1179,3 +1186,77 @@ badge, and the row's post-toggle state.
 reminder there; the PLUGINS tab is the single owner of pending. The right side
 of the HOME group line is empty unless a config warning is present.
 **Rejected:** keeping a pending badge on HOME; hiding pending entirely.
+**Amended by D69:** pending is shown as `NEXT ON`/`NEXT OFF` beside the loaded
+status, not as a `PENDING` badge.
+
+## D69 — A row reports the running set, with next boot as a second badge
+
+**Status:** Accepted
+**Context:** The b39 badge was derived from the edited file, so disabling a
+plugin painted `DISABLED` while the process still had it loaded. The user could
+not tell "written to the file" from "no longer running", which is the one thing
+this screen must never blur.
+**Decision:** `loaded` is computed from the launch file and never changes during
+a session. The status badge reads `LOADED`, `OFF`, `MIXED`, `MISSING`, `NOT
+REACHED`, or `BOOT` from that set. A row whose file differs from the launch
+pattern adds a yellow `NEXT ON` or `NEXT OFF` badge. The header counts `LOADED`
+and `NEXT BOOT`, not `ACTIVATED`. A mixed row disables first, because completing
+it adds a load context the confirmation cannot fully describe.
+**Consequence:** After a disable the row still says `LOADED` with `NEXT OFF`;
+after the reboot it says `OFF`. HOME keeps the launch summary; pending stays on
+PLUGINS (D68).
+**Rejected:** a file-state badge; one badge carrying both time states; moving
+pending back to HOME.
+
+## D70 — Every change is confirmed, receipted, and rebootable
+
+**Status:** Accepted
+**Context:** A Cross press sometimes wrote immediately and sometimes opened a
+dialog. A successful write gave no receipt, no next-boot statement, and no way
+to reboot or undo. On a screen that edits boot-time system plugins, "it probably
+saved" is not good enough.
+**Decision:** Every actionable toggle opens a confirmation naming the verb, the
+file, the next-boot effect, the row-specific warning, the KERNEL/SYSTEM risk, the
+hold-L escape hatch, the line count, and the session change number. Success
+opens a receipt that says the file is saved and leaving COCKPIT does not cancel
+it. `TRIANGLE` opens `PLUGIN SESSION` with `REBOOT NOW` (when changes wait),
+`UNDO LAST CHANGE` (when a snapshot differs), and `CLOSE`. Reboot goes through
+`platform_request_reboot()` to `scePowerRequestColdReset()`, is refused below
+20 % battery unless charging, warns about the card, and reports a request that
+did not reset instead of freezing on a promise. Before every toggle the editor
+writes `config.txt.undo` from the verified pre-write bytes and refuses the change
+if that snapshot fails. Undo restores it through the same transaction, refuses
+if the live file changed on disk, and works when the live file is missing.
+`.original` and `.session` are not offered as in-app restore sources.
+**Consequence:** A change costs one more press; a reboot costs two deliberate
+presses and is never on the same Cross that confirmed a write. Undo is one step,
+not a stack, and persists across a relaunch. `.session` is an audit snapshot,
+not a promise.
+**Rejected:** silent writes; a reboot button on the receipt; in-app `.original`
+restore; an in-app EXIT prompt that the PS button would bypass.
+**Verification:** `scePowerRequestColdReset` is declared in `psp2/power.h` `[V]`;
+that an UNSAFE userland eboot on 3.65 Enso is allowed to cold-reset is `[C]`.
+
+## D71 — Repair the swap, and never silently switch mounts
+
+**Status:** Accepted
+**Context:** The rename-away swap has a window where the live file is absent.
+A power loss there left only `config.txt.old`, and the next scan called the
+config missing while the bytes sat one name away. Separately, an unreadable
+`ux0:` config fell back to `ur0:` and then wrote a file the boot never reads. The
+final rename failure also reported `RENAME` even when the restore failed and the
+live file was gone.
+**Decision:** `editor_scan()` calls `platform_recover_swap()` on both config
+paths before reading; an absent live file with a surviving `.old` is renamed
+back and the panel says `RECOVERED`. A `ux0:` that exists but cannot be read is
+read-only and named; neither the editor nor HOME falls through to `ur0:` in that
+case. The final rename failure checks the restore and reports `RESTORE` when the
+original could not be put back. One over-long path is skipped with a `CONFIG
+WARNING` instead of making the whole file read-only. `sceIoSyncByFd` is a
+best-effort flush, never a new write failure.
+**Consequence:** A power loss in the swap window is recoverable without a PC. An
+inert edit to the shadowed mount cannot happen. A failed restore is loud instead
+of masquerading as an ordinary rename failure.
+**Rejected:** deleting `.old` before the new file is verified; treating a
+stat/open failure as permission to switch mounts; failing the whole page on one
+long path.
