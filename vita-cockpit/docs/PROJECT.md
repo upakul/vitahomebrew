@@ -1,0 +1,168 @@
+# Project
+
+What COCKPIT is, what it is not, and where it stands.
+
+---
+
+## 1. Purpose
+
+A single-screen, always-live readout of the machine it runs on. It is an
+instrument panel: it measures, it does not configure.
+
+The product rule is that **every number on screen is real**. A fabricated
+metric would poison the credibility of the whole panel, so anything the
+platform cannot report is omitted rather than approximated.
+
+## 2. Scope
+
+### v1 — in
+
+| Region | Contents |
+|---|---|
+| CORE | ARM, GPU, and bus clock; free user / CDRAM / physical-contiguous pools; 20 s memory trace |
+| STORAGE | `ux0:`, `uma0:` used and total, with the unit chosen from each volume's size (GB or MB), segmented meters |
+| POWER | battery percent, charging state, temperature, voltage, cycles, health |
+| SYSTEM | firmware string, app run time, device model |
+| PLUGINS | the taiHEN plugins actually loaded, with a one-line role |
+| FRAME | measured FPS, frame time, 20 s trace |
+
+The wall clock and the wordmark are header chrome, not a panel, so identity
+appears exactly once on screen.
+
+### v1 — out
+
+- Persistence. COCKPIT writes nothing to disk.
+- Network, audio, camera, motion.
+- Configuration or a settings screen.
+- Any kernel plugin. This is a userland app.
+
+### Later
+
+App and bubble inventory, per-title storage attribution, taiHEN plugin status,
+network state, screenshot browser, theme switching. The panel contract exists so
+these are additive, not invasive. See §7.
+
+## 3. Target and constraints
+
+- PS Vita on firmware 3.65 with permanent Enso CFW.
+- PSTV is out of scope; its differences are not handled.
+- Unsafe eboot. Reading `uma0:` capacity needs a call the safe authid refuses,
+  so the app ships `UNSAFE` (D42); `build.sh --safe` builds the restricted
+  variant.
+- No hardware is reachable from the development environment. Every runtime
+  behaviour is unverified until someone runs it.
+
+The full constraint table, with `[V]`/`[C]` verification status for each
+platform claim, is in [ARCHITECTURE.md §7](ARCHITECTURE.md#7-platform-claims-and-their-status).
+
+## 4. Build and deploy
+
+```sh
+./build.sh                 # cmake configure + build
+./send.sh 192.168.1.42     # upload the newest VPK over FTP
+```
+
+`build.sh` locates `../vitasdk` automatically, so no global `VITASDK` export is
+required. On the Vita, open VitaShell, press Select to start the FTP server, then
+run `send.sh` with the address it shows.
+
+Scroll the panel area with the d-pad or the left stick. The header and the
+FRAME strip stay pinned; a thin bar on the right shows position.
+
+Install by selecting the VPK in `ux0:data` inside VitaShell and pressing Cross.
+The bubble appears on LiveArea.
+
+### Every build gets a new artifact name
+
+**Rule: no two builds may share a filename.** A VPK that overwrites its
+predecessor cannot be identified after the fact — not on the console, not in
+`ux0:data`, not in a bug report. This is not optional bookkeeping; it is what
+makes "which build is on the Vita?" answerable.
+
+The artifact is named:
+
+```
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b8.vpk
+```
+
+| Part | Source | Changes |
+|---|---|---|
+| `version` | `VITA_VERSION` in `CMakeLists.txt` | only on a release, and it must stay `##.##` because it also becomes `APP_VER` |
+| `build` | `BUILD_NUMBER`, incremented by `build.sh` | **every build**, automatically |
+
+The split is deliberate. `APP_VER` has to be `##.##`, so a per-build version
+would either break the SFO or lie about the release. The build number carries
+per-build identity; the version carries release identity. Both appear in the
+filename, so one glance identifies the artifact.
+
+Mechanics:
+
+- `BUILD_NUMBER` lives in the project root, **not** in `build/`. Wiping the build
+  directory must not restart numbering into a collision with VPKs already copied
+  to the console.
+- `build.sh` hashes the sources. Unchanged sources reuse the previous number;
+  changed sources increment it. Rebuilding to check for warnings therefore does
+  not burn a number.
+- Only the newest VPK is kept. Superseded artifacts are deleted after every
+  build, so the directory always holds exactly the one to flash.
+- `send.sh` uploads the newest `build/cockpit-v*.vpk`. Old builds are left alone
+  so several can sit in `ux0:data` side by side.
+- A release that must keep a fixed name (a store upload, say) is a deliberate
+  exception and should say so in `DECISIONS.md`; it is not the default.
+
+Do not hand-edit `BUILD_NUMBER` downward to reuse a number. If numbering has to
+restart, delete the stale VPKs first and record why.
+
+## 5. Verification status
+
+COCKPIT inherits the workspace rule: a claim is `[V]` only when it has been
+checked against a primary source or observed on hardware, and `[C]` when it is
+community knowledge.
+
+| Area | Status |
+|---|---|
+| Builds and packages | `[V]` clean build, 86 KB VPK, no warnings |
+| Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh` |
+| Clocks, memory, power APIs declared in SDK | `[V]` header inspection |
+| Clock row follows a runtime clock change | `[C]` — the getters are re-read every sample, so an overclock applied by a plugin should appear within ~100 ms without a restart; not yet observed on hardware |
+| `SceIoDevInfo` layout | `[V]` `psp2common/kernel/iofilemgr.h`, 24 bytes |
+| `sceIoDevctl("ux0:", 0x3001, …)` command | `[V]` `psp2/io/devctl.h` demonstrates it verbatim |
+| Storage result unit (bytes) | `[C]` — the one claim still unconfirmed |
+| Device model codes | `[V]` `psp2common/kernel/sysmem.h` |
+| Screen layout and typography | `[V]` host preview render, four states |
+| Renders on hardware | `[V]` 2026-11-02: text, clocks, memory, power, identity and frame all draw on the console |
+| STORAGE reads | `[V]` both volumes report on hardware under `UNSAFE` (D42); `ux0:` also works on the safe build via `sceAppMgrGetDevInfo` (D38) |
+| Behaviour not listed above | unverified |
+
+The SYSTEM panel shows **FW 3.74** because the console's version string is
+spoofed; the machine is on 3.65 Enso. That is the value the API returns, so it is
+correct to display. See `AGENTS.md` and `agent-wiki/01-platform.md`.
+
+The host tests (`tools/test/run.sh`) link the real `core/` against a fake port and
+assert the alert policy at its boundary, the failed-read path, the unit
+conversions, and the history ring. The host preview (`tools/preview/run.sh`)
+renders the shipped composition against the same fake. Neither proves anything
+about the device: every reading in them is synthetic.
+
+## 6. Failure policy
+
+Panels degrade, they do not crash.
+
+- A metric that could not be sampled renders `--`, never a stale or invented
+  value.
+- A failed sample raises `g_metrics.alert`, which draws the hazard band.
+- A storage mount that does not exist (no `uma0:` without a second volume)
+  is shown as absent, not as an error. A mount whose call *failed* shows the
+  return code, so a permission problem is not mistaken for a missing card.
+
+## 7. Roadmap
+
+| Step | Adds | Needs |
+|---|---|---|
+| v1 | the six regions above | done — hardware-verified |
+| v2 | app inventory, per-title storage | `sceAppMgrGetAppInfo`, directory walk of `ux0:app` |
+| v3 | network status | `SceNetCtl` |
+| v4 | theme switching, a second visual language | a theme abstraction in `gfx/theme` |
+
+Each step adds panels and at most one adapter. None of them change the frame
+loop or the panel contract.

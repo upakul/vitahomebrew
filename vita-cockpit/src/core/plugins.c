@@ -1,0 +1,393 @@
+#include "core/plugins.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "core/platform.h"
+
+PluginList g_plugins;
+
+/*
+ * The two places Enso looks for a plugin list. ur0: is the live one; ux0: is the
+ * legacy path older taiHEN setups used, and a console can carry both.
+ */
+static const char *const CONFIGS[] = {
+    "ur0:tai/config.txt",
+    "ux0:tai/config.txt",
+};
+
+#define CONFIG_COUNT ((int)(sizeof(CONFIGS) / sizeof(CONFIGS[0])))
+
+/* Generous for a config file; the format is a few dozen short lines. */
+#define CONFIG_CAP 4096
+
+#define PLUGIN_SUFFIX_KERNEL ".skprx"
+#define PLUGIN_SUFFIX_USER ".suprx"
+
+/*
+ * [C] Short descriptions of plugins common on 3.65 Enso. Community knowledge,
+ * not something a header or the console reports; the canonical list is the
+ * AutoPlugin2 project. An unknown plugin still appears — the name alone tells a
+ * reader something — with an empty description rather than an invented one.
+ */
+typedef struct {
+    const char *name;
+    const char *desc;
+} KnownPlugin;
+
+static const KnownPlugin KNOWN[] = {
+    /*
+     * Every plugin in the AutoPlugin2 Vita catalog
+     * (AUTOPLUG2/plugins/plugins.lua), keyed by file name and paired with its
+     * English string (AUTOPLUG2/lang/ENGLISH_US.lua). The catalog's text is
+     * shortened to one line; PLUGIN_DESC_MAX is the hard limit. Sorted by file
+     * name so a new entry has an obvious place.
+     *
+     * A row marked [C] is not a straight catalog copy: the catalog may have no
+     * entry for that file (iTLS, libshacccg, YAMT, HENkaku), list it only as a
+     * dependency (ioPlus, kuio), or carry text that belongs to another plugin
+     * or is unusable (adrenaline_kernel, ds3, lowmemmode, scorehax).
+     */
+    {"0syscall6.skprx", "patches lv0 syscall 6 checks"},
+    {"8bitvita.skprx", "8bitdo controller support"},
+    {"aciddumper.skprx", "locates fake dlc content"},
+    /* [C] catalog text is the bubble launcher's, not the kernel module */
+    {"adrenaline_kernel.skprx", "adrenaline kernel module"},
+    {"adrenaline_usb_enabler.suprx", "adrenaline usb pairing"},
+    {"alienhook.suprx", "alien shooter dlc unlocker"},
+    {"allefresher_vita.suprx", "littlebigplanet custom server patch"},
+    {"analogsenhancer.skprx", "analog deadzone and rescaling"},
+    {"analogstickdisable.skprx", "disables both analog sticks"},
+    {"analogstickdisable_leftonly.skprx", "disables left analog stick"},
+    {"analogstickdisable_lefttoright.skprx", "left stick acts as right stick"},
+    {"analogstickdisable_rightonly.skprx", "disables right analog stick"},
+    {"analogstickdisable_righttoleft.skprx", "right stick acts as left stick"},
+    {"analogstickdisable_swapleftandright.skprx", "swaps left and right sticks"},
+    {"autoboot.suprx", "auto-launch an app at boot"},
+    {"bettertrackplug.skprx", "playtime tracker"},
+    {"bootsound.suprx", "custom boot jingle (wav)"},
+    {"capunlocker.skprx", "unlocks cache0: and 4th core"},
+    {"catherinefbhd.suprx", "catherine full body hd patch"},
+    {"cidspoof.skprx", "spoofs console id"},
+    {"cpuaffinitychanger.skprx", "system apps use all user cores"},
+    {"custom_boot_splash.skprx", "custom boot splash (needs enso)"},
+    {"custom_warning.suprx", "custom boot warning message"},
+    {"dejavu.skprx", "ram snapshot and restore"},
+    {"dolcepolce.suprx", "removes pstv blacklist checks"},
+    {"download_enabler.suprx", "download files via browser"},
+    /* [C] catalog text is MiniVitaTV's, not the DS3 driver's */
+    {"ds3.skprx", "dualshock 3 controller support"},
+    {"ds34vita.skprx", "ds3/ds4/dualsense support"},
+    {"ds3vita.skprx", "control your vita with a dualshock 3"},
+    {"ds4touch.skprx", "ds4 touchpad support"},
+    {"ds4vita.skprx", "control your vita with a dualshock 4"},
+    {"dsmotion.skprx", "dualshock motion for pstv"},
+    {"dsmotion.suprx", "dualshock motion for pstv"},
+    {"dt2s_statusbar.suprx", "double-tap status bar to sleep"},
+    {"dualsense-driver.skprx", "dualsense controller support"},
+    {"ef2uma.suprx", "maps psp go ef0 to uma0"},
+    {"ef2xmc.suprx", "maps psp go ef0 to xmc0"},
+    {"emergencymount.skprx", "hold triangle at boot to mount usb"},
+    {"fd_fix.skprx", "fixes file descriptors after suspend"},
+    {"freepsm.suprx", "debug psm in-app purchases"},
+    {"fruitpeel.suprx", "custom lockscreen wallpaper"},
+    {"ftpeverywhere.suprx", "background ftp server"},
+    {"gr544p.suprx", "gravity rush 544p patch"},
+    /* [C] not in the catalog; from the HENkaku plugin source */
+    {"henkaku.suprx", "settings menu, version and update spoof"},
+    {"hidkeyboard.skprx", "vita as a usb keyboard"},
+    {"honripper.suprx", "extracts sony reader .mnh books"},
+    {"infinitenet.suprx", "stops games disabling net features"},
+    /* [C] dependency; catalog has no standalone entry */
+    {"ioplus.skprx", "more io operations for userland"},
+    /* [C] not in the catalog; community knowledge */
+    {"itls.skprx", "tls 1.2 support"},
+    {"jav.suprx", "auto speaker/headphone volume"},
+    {"kubridge.skprx", "kernel-user bridge module"},
+    /* [C] dependency; catalog has no standalone entry */
+    {"kuio.skprx", "user modules access ux0:data i/o"},
+    /* [C] not in the catalog; community knowledge */
+    {"libshacccg.suprx", "shader compiler for vitagl"},
+    {"livesky.suprx", "redirects livetweet to bluesky"},
+    {"lolita444.skprx", "sets clocks to 444 mhz"},
+    {"lolita500.skprx", "sets clocks to maximum"},
+    /* [C] catalog text is garbled; this is the readable form */
+    {"lowmemmode.suprx", "launches system apps with more ram"},
+    {"macspoofer.suprx", "spoofs mac address"},
+    {"mafuinput.skprx", "records and replays input"},
+    {"minivitatv.skprx", "local multiplayer, up to 4 pads"},
+    {"modalvol.suprx", "system volume control in game"},
+    {"music_premium.skprx", "background music in any game"},
+    {"noavls.skprx", "disables avls on forced consoles"},
+    {"noled.skprx", "turns off home button led"},
+    {"nolockscreen.suprx", "disables the lockscreen"},
+    {"nonpdrm.skprx", "bypass drm on vita content"},
+    {"nonpdrm_un.skprx", "bypass drm, unofficial fork"},
+    {"nopowerlimits.skprx", "removes some scepower restrictions"},
+    {"nopsmdrm.skprx", "bypass drm on psm game content"},
+    {"nopspemudrm_kern.skprx", "bypass psp/ps1 drm checks"},
+    {"nopspemudrm_kern_mod.skprx", "bypass psp/ps1 drm (ark)"},
+    {"nopspemudrm_user.suprx", "bypass psp/ps1 drm checks"},
+    {"nopspemudrm_user_mod.suprx", "bypass psp/ps1 drm (ark)"},
+    {"nosharedfb.suprx", "fixes framebuffer after suspend"},
+    {"nosleep.skprx", "disables the sleep timer"},
+    {"notrophymsg.suprx", "hides cross-account trophy hint"},
+    {"notrpdrm.suprx", "enables trophies for homebrew"},
+    {"p4goldenhd_1280x720.suprx", "persona 4 golden 720p patch"},
+    {"p4goldenhd_1920x1080.suprx", "persona 4 golden 1080p patch"},
+    {"pasteunlock.suprx", "unlocks system copy/paste"},
+    {"pngshot.suprx", "screenshot to png"},
+    {"pocketstationunlocker.skprx", "pocketstation on all ps1 classics"},
+    {"ps4linkcontrols.suprx", "remote play button config"},
+    {"psonescrot.skprx", "proper ps1 screenshots"},
+    {"psp2wpp.suprx", "custom home background wave"},
+    {"pspemu-colour-crunch.skprx", "pspemu colour space (vita 2000)"},
+    {"psvshell.skprx", "overclocking with 3 gui modes"},
+    {"psvshell_mod.skprx", "overclocking, raangi mod"},
+    {"psvshellplus_kernel.skprx", "overclock and info hud"},
+    {"psvshellplus_shell.suprx", "overclock and info hud"},
+    {"qascreenshot.suprx", "native qa screenshot"},
+    {"quickmenuplus.suprx", "power/volume quick menu"},
+    {"quickmenureborn.suprx", "quick menu widget library"},
+    {"quietshot.suprx", "silences the shutter sound"},
+    {"reauth.skprx", "playstation store sign-in"},
+    {"ref00d.skprx", "runs programs that do not decrypt"},
+    {"rehomearcade.suprx", "unlocks ps home arcade games"},
+    {"remapsv.suprx", "button and touch remapping"},
+    {"remapsv2.suprx", "button and touch remapping"},
+    {"repatch.skprx", "mods encrypted games"},
+    {"repatch_4.skprx", "older repatch build"},
+    {"repatch_ex.skprx", "repatch reloaded"},
+    {"rerescaler.suprx", "shader upscaling for non-native res"},
+    {"resavedata.skprx", "unencrypted savedata redirect"},
+    {"rescreeny.suprx", "screenshots in per-game folders"},
+    {"reskype.suprx", "enables skype on 3.65+"},
+    {"restorepsmdev.suprx", "restores psm dev apps"},
+    {"revita.skprx", "input remapping and macros"},
+    /* [C] catalog text is a joke; this is the function */
+    {"scorehax.suprx", "score cheat for any game"},
+    {"sharpscale.skprx", "native 960x544 hdmi for pstv"},
+    {"shellbat.suprx", "battery percent in status bar"},
+    {"shellbat_mod.suprx", "battery percent and ip in status bar"},
+    {"shellsecbat.suprx", "battery, seconds and drive state"},
+    {"showinfo.suprx", "shows title id, name and version"},
+    {"showinfolite.suprx", "shows title id, name and version"},
+    {"staybright.skprx", "no auto-dim, keeps auto-suspend"},
+    {"storagemgr.skprx", "storage remap, sd2vita"},
+    {"sysident.suprx", "system info in settings"},
+    {"trimpose.suprx", "transparent power menu"},
+    {"trophax2.0.suprx", "universal trophy unlocker"},
+    {"trophyshot.suprx", "screenshot on trophy unlock"},
+    {"turbopad.suprx", "rapid fire for any button"},
+    {"tvikey.skprx", "pstv mouse/keyboard driver"},
+    {"udcd_uvc.skprx", "usb video capture"},
+    {"udcd_uvc_lcd_off.skprx", "usb video, lcd off"},
+    {"udcd_uvc_oled_off.skprx", "usb video, oled off"},
+    {"usbdisable.suprx", "hides the usb connect dialog"},
+    {"usbmc.skprx", "usb storage as memory card"},
+    {"usbmcm.skprx", "usb storage as memory card (psvsd)"},
+    {"vflux.suprx", "screen colour temperature"},
+    {"vgi.suprx", "game info overlay"},
+    {"videodebug.skprx", "video app debug mode"},
+    {"viimote.skprx", "control your vita with a wiimote"},
+    {"vita3g-disable.suprx", "disables 3g, reports wifi-only"},
+    {"vitabright.skprx", "custom gamma table, dimmer screen"},
+    {"vitabtfix.skprx", "fixes silent bluetooth audio"},
+    {"vitacheat.skprx", "cheats for 3.65/3.68 games"},
+    {"vitacheat360.skprx", "cheats for 3.60 games"},
+    {"vitacompanion.suprx", "homebrew dev companion"},
+    {"vitacompanion_kernel.skprx", "homebrew dev companion, kernel"},
+    {"vitacontrol.skprx", "bluetooth controller support"},
+    {"vitagrafix.suprx", "game resolution and fps patches"},
+    {"vitanearestneighbour.suprx", "nearest-neighbour texture filter"},
+    {"vitapad.skprx", "vita as a usb gamepad"},
+    {"vitapresence.skprx", "discord rich presence"},
+    {"vitaqmbluetooth.skprx", "quick menu bluetooth reconnect"},
+    {"vitastick.skprx", "vita as a usb controller"},
+    {"vixen.skprx", "x-input gamepad driver"},
+    {"vollightbarctrlwithds4.skprx", "volume via ds4, lightbar battery"},
+    {"vsh.suprx", "in-game vsh menu"},
+    {"vshpatch.skprx", "patches system applications"},
+    {"wdnf.suprx", "disables front touchscreen"},
+    {"wdnr.suprx", "disables rear touchpad"},
+    {"x1vita.skprx", "xbox one controller support"},
+    /* [C] not in the catalog; from the YAMT README */
+    {"yamt.suprx", "storage remount settings gui"},
+};
+
+#define KNOWN_COUNT ((int)(sizeof(KNOWN) / sizeof(KNOWN[0])))
+
+static int ieq(const char *a, const char *b)
+{
+    while (*a != '\0' && *b != '\0') {
+        char ca = *a;
+        char cb = *b;
+
+        if (ca >= 'A' && ca <= 'Z')
+            ca = (char)(ca - 'A' + 'a');
+        if (cb >= 'A' && cb <= 'Z')
+            cb = (char)(cb - 'A' + 'a');
+
+        if (ca != cb)
+            return 0;
+
+        ++a;
+        ++b;
+    }
+
+    return *a == '\0' && *b == '\0';
+}
+
+static const char *base_name(const char *path)
+{
+    const char *base = path;
+
+    for (const char *p = path; *p != '\0'; ++p) {
+        if (*p == '/' || *p == ':')
+            base = p + 1;
+    }
+
+    return base;
+}
+
+static int ends_with(const char *s, const char *suffix)
+{
+    size_t n = strlen(s);
+    size_t m = strlen(suffix);
+
+    return n >= m && strcmp(s + n - m, suffix) == 0;
+}
+
+static int is_plugin_path(const char *s)
+{
+    return ends_with(s, PLUGIN_SUFFIX_KERNEL) ||
+           ends_with(s, PLUGIN_SUFFIX_USER);
+}
+
+static void copy(char *dst, size_t cap, const char *src)
+{
+    if (cap == 0)
+        return;
+
+    snprintf(dst, cap, "%s", src);
+}
+
+static void add_plugin(PluginList *list, const char *path)
+{
+    if (list->count >= PLUGINS_MAX)
+        return;
+
+    const char *base = base_name(path);
+    if (*base == '\0')
+        return;
+
+    /* The same plugin can be listed in both config files. */
+    for (int i = 0; i < list->count; ++i) {
+        if (ieq(list->items[i].name, base))
+            return;
+    }
+
+    PluginInfo *p = &list->items[list->count];
+
+    copy(p->name, sizeof(p->name), base);
+    copy(p->path, sizeof(p->path), path);
+    p->desc[0] = '\0';
+
+    for (int k = 0; k < KNOWN_COUNT; ++k) {
+        if (ieq(KNOWN[k].name, p->name)) {
+            copy(p->desc, sizeof(p->desc), KNOWN[k].desc);
+            break;
+        }
+    }
+
+    ++list->count;
+}
+
+int plugins_parse(const char *text, PluginList *list)
+{
+    if (text == NULL || list == NULL)
+        return 0;
+
+    int added = 0;
+    const char *p = text;
+
+    while (*p != '\0') {
+        const char *line = p;
+
+        while (*p != '\0' && *p != '\n')
+            ++p;
+
+        size_t len = (size_t)(p - line);
+        if (*p == '\n')
+            ++p;
+
+        /* Trim trailing CR and spaces; the Vita may hand back either. */
+        while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == ' ' ||
+                           line[len - 1] == '\t'))
+            --len;
+
+        while (len > 0 && (*line == ' ' || *line == '\t')) {
+            ++line;
+            --len;
+        }
+
+        if (len == 0 || *line == '#')
+            continue;
+
+        /* Section headers (*KERNEL, *main) are not plugins. */
+        if (*line == '*')
+            continue;
+
+        char path[PLUGIN_PATH_MAX];
+        if (len >= sizeof(path))
+            len = sizeof(path) - 1;
+
+        memcpy(path, line, len);
+        path[len] = '\0';
+
+        if (!is_plugin_path(path))
+            continue;
+
+        int before = list->count;
+        add_plugin(list, path);
+        if (list->count != before)
+            ++added;
+    }
+
+    return added;
+}
+
+void plugins_scan(void)
+{
+    memset(&g_plugins, 0, sizeof(g_plugins));
+
+    char buf[CONFIG_CAP];
+
+    for (int i = 0; i < CONFIG_COUNT; ++i) {
+        int n = platform_read_text_file(CONFIGS[i], buf, (int)sizeof(buf));
+        if (n <= 0)
+            continue;
+
+        g_plugins.config_found = 1;
+        plugins_parse(buf, &g_plugins);
+    }
+
+    /*
+     * Keep only what is actually on disk. A path listed in config.txt whose
+     * file is missing is skipped by the loader, so counting it would report a
+     * plugin that is not running.
+     */
+    int kept = 0;
+
+    for (int i = 0; i < g_plugins.count; ++i) {
+        if (!platform_file_exists(g_plugins.items[i].path))
+            continue;
+
+        if (kept != i)
+            g_plugins.items[kept] = g_plugins.items[i];
+
+        ++kept;
+    }
+
+    g_plugins.count = kept;
+}

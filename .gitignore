@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# VitaSDK
+#
+# ~494 MB of compiler, headers, stubs and host tools. Every clone installs its
+# own copy, and nothing here builds without VITASDK set. Never commit it: it is
+# a toolchain, not source, and it carries Sony-derived headers and stubs.
+vitasdk/
+
+# ---------------------------------------------------------------------------
+# Build output
+#
+# Each project compiles into build/ and regenerates it from scratch. The
+# BUILD_NUMBER file deliberately lives outside build/ (see AGENTS.md): wiping
+# the build directory must not reuse a number that is already on the console.
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Vita artifacts, wherever they land
+*.vpk
+*.vpk.out
+*.velf
+*.self
+*.self.out
+*.skprx
+*.suprx
+*.elf
+*.a
+
+# ---------------------------------------------------------------------------
+# Console data
+#
+# A .psp2dmp is a full copy of the console's process memory, including mapped
+# system modules. It is analysis input, not source, and must not be published.
+*.psp2dmp
+*.psp2dmp.tmp
+*.tmp
+
+# ---------------------------------------------------------------------------
+# Third-party tools
+#
+# psp2_gpucrash_parse is shoui520's MIT project with its own history and
+# license. Clone it into tools/ when you need it; do not vendor it. See
+# gpu-crash-study/ANALYSIS.md.
+tools/psp2_gpucrash_parse/
+
+# ---------------------------------------------------------------------------
+# Host tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# ---------------------------------------------------------------------------
+# Editor and OS noise
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
