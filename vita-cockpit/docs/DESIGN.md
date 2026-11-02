@@ -18,7 +18,8 @@ moves.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ COCKPIT                                          14:22:07    │
+│ COCKPIT      HOME  PLUGINS  L/R                  14:22:07    │
+│                    7 ACTIVE  KERNEL 3  SYSTEM 2  APPS 1 ...  │
 ├──────────────────────────────────────────────────────────────┤
 │ CORE 552×210                 │ POWER 360×210                  │
 │ ARM  333  GPU  166  BUS  166 │                                │
@@ -32,19 +33,15 @@ moves.
 │ ▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░  │ RUN           00:14:22         │
 │ UMA0                   N/A   │ MODEL            PSVITA        │
 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░  │                                │
-├──────────────────────────────┴────────────────────────────────┤
-│ ACTIVATED PLUGINS            grouped by load target          │
-│ KUBRIDGE.SKPRX ──────────────────────────────── ▪            │
-│ kernel-user bridge module                                    │
-│ ...                                                          │
 ├──────────────────────────────────────────────────────────────┤
 │ FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼──                   │ 44 pinned
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The drawing is schematic; the table below is the exact geometry. The clock is
-the only identity in the header. The device model lives in SYSTEM, so nothing
-appears twice.
+The PLUGINS tab replaces the panel area with a full-width ledger; the header and
+FRAME strip stay pinned. The drawing is schematic; the table below is the exact
+geometry. The clock is the only identity in the header. The device model lives
+in SYSTEM, so nothing appears twice.
 
 ### Grid
 
@@ -55,21 +52,21 @@ appears twice.
 | POWER | 582 | 0 | 360 | 210 |
 | STORAGE | 18 | 222 | 552 | 172 |
 | SYSTEM | 582 | 222 | 360 | 172 |
-| PLUGINS | 18 | 406 | 924 | self-sizing (D47) |
 | FRAME | 18 | 482 | 924 | 44 | (pinned, screen coords) |
 
 Panel `y` is canvas coordinates; the app offsets them by the scroll and clips to
 the band at y 64..472. The band carries a 12 px top inset, so the first panel
-starts at screen y 76 and its outline is whole; the inset scrolls away. The
-canvas is `406 + plugins_panel_height() + 12`:
-729 for the four-plugin preview (two groups), 1,581 for the nineteen-plugin
-console config (four groups).
+starts at screen y 76 and its outline is whole; the inset scrolls away. The home
+canvas is `394` (the lower panel edge), and `layout_max_scroll()` is zero because
+`394 < 408 - 12`. The PLUGINS tab uses its own canvas:
+`plugins_content_height()` starts at 0 and grows with the rows, groups, and
+orphan section; its scroll range is `height - (VIEW_H - VIEW_TOP_GAP)`.
 
 Constants: `MARGIN 18`, `GAP 12`, `SP_3 12`, `VIEW_TOP_GAP 12`. Both columns
-share both seams --
-row one is 210 tall, row two 172 -- so the 12 px gap between the rows runs
-unbroken across the screen and both columns end at canvas y 394. The strip
-begins at screen y 482 and ends at 526, leaving an 18 px bottom margin.
+share both seams -- row one is 210 tall, row two 172 -- so the 12 px gap between
+the rows runs unbroken across the screen and both columns end at canvas y 394.
+The strip begins at screen y 482 and ends at 526, leaving an 18 px bottom
+margin.
 
 ### Vertical rhythm
 
@@ -117,9 +114,9 @@ else must shrink.
 | `C_HAIR` | `#1C1D24` | scrollbar track, empty meter cells |
 | `C_DIM` | `#6E707E` | labels, absent values |
 | `C_WHITE` | `#EDEDF0` | numeric values |
-| `C_YELLOW` | `#FCEE0A` | primary — wordmark, hero accents |
-| `C_CYAN` | `#2AD8E8` | machine data |
-| `C_GREEN` | `#3BE07A` | status only: a loaded plugin marker (D47) |
+| `C_YELLOW` | `#FCEE0A` | primary — wordmark, hero accents, active tab, missing/partial status |
+| `C_CYAN` | `#2AD8E8` | machine data, group headers, boot rows |
+| `C_GREEN` | `#3BE07A` | status only: an enabled or partial plugin marker (D47) |
 
 `C_DIM` was `#43444F` until the host preview measured it at roughly 2:1 contrast
 against `C_PANEL` — unreadable at 10 px on a 5-inch screen, and the clock
@@ -160,7 +157,7 @@ A glyph is `5·px` wide, `7·px` tall, advancing `6·px`.
 
 | Role | px | Box | Used for |
 |---|---|---|---|
-| micro | 1.5 | 7.5 × 10.5 | units, charging state, trace caption, plugin description, group header |
+| micro | 1.5 | 7.5 × 10.5 | units, charging state, trace caption, plugin description, status, group header, modal body |
 | label | 2 | 10 × 14 | metric names, panel titles |
 | value | 3 | 15 × 21 | numbers in a row |
 | hero | 4 | 20 × 28 | wordmark |
@@ -248,23 +245,65 @@ STORAGE is the one place `--` is not used. A mount that is not present shows
 slot" and "this metric could not be read" are different statements, and an empty
 row is never acceptable (D41).
 
-### Plugin ledger
+### Tabs and the HOME summary
 
-ACTIVATED PLUGINS is a two-line ledger, grouped by the load target the plugin
-was listed under: KERNEL, SYSTEM (`*main`), SYSTEM APPS (`*NPXS*`), ALL TITLES
-(`*ALL`), and TITLES for any other target. Each non-empty group opens with a
-micro, 1 px-tracked cyan header. A file listed under several targets appears
-once, under the most privileged one, so the panel answers what is running rather
-than how many lines the file contains (D51).
+The 64 px header carries the tabs between the wordmark and the clock. `HOME` and
+`PLUGINS` are label-scale, 1 px tracked; the active tab is `C_YELLOW` with a 2 px
+underline at y 36, the inactive tab is `C_DIM`, and `L/R` sits beside them. The
+HOME summary shares the hazard line at y 48: total activated plugins, then the
+non-empty groups, then the pending count. It is micro and dim, right-aligned to
+the margin. A fault replaces the summary with the hazard band; the tabs stay.
 
-A row is the file name at label scale, a leader rule to a green status dot, then
-the description one step down at micro scale. An entry outside the description
-catalog says `N/A` instead of leaving the second line empty (D52). The dot is
-`C_GREEN`, the only status hue in the palette; every row in the panel is loaded,
-because the scan drops entries whose file is missing. Height is
-`41 + 26 × groups + 52 × rows + 10 × (groups − 1)`, so the panel grows with the
-list instead of clipping it (D47, D48). A config that exceeds the 64-entry
-ceiling adds one line for the `MORE PLUGINS NOT SHOWN` notice (D50).
+The summary drops the word `ACTIVE` and then group counts from `TITLES` upward
+when the run would cross the tab block. The total and the pending token always
+survive. Because the summary is in the header, HOME keeps both panel rows at
+scroll 0 and has no scrollbar (D60).
+
+### PLUGINS tab
+
+The tab is a full-width panel at x 18, w 924, starting at canvas y 0. Its height
+is computed, not compiled in: `41 + 14 × 2 + 8 + 26 × groups + 52 × rows +
+10 × (groups − 1)` plus the orphan section and a 16 px bottom margin. The band
+clips it and the scrollbar follows `plugins_max_scroll()`.
+
+The panel header names the active config and, when both exist, the ignored one.
+Under it, `CHANGES APPLY NEXT BOOT` states the effect; a read-only or invalid
+config replaces that line with `CONFIG IS READ ONLY`.
+
+Rows are grouped by the most privileged line that names the path: KERNEL,
+SYSTEM (`*main`), SYSTEM APPS (`*NPXS*`), ALL TITLES (`*ALL`), and TITLES. Each
+non-empty group opens with a micro, 1 px-tracked cyan header. A path listed under
+several targets is one row (D51, D56).
+
+A row is a two-line entry: the display name at label scale, then the catalog
+description or `N/A` at micro scale, with the status right-aligned on the second
+line. The name is the basename; when two rows share a basename the full path is
+shown so the two files are distinguishable. The green dot and leader belong only
+to `ENABLED` and `PARTIAL` rows; `DISABLED`, `MISSING`, and `NOT REACHED` end the
+leader without a dot, and `BOOT` is locked. Status tones: `C_GREEN` enabled,
+`C_DIM` disabled/not reached, `C_YELLOW` missing/partial, `C_CYAN` boot. A
+pending change appends `PENDING`; a locked row appends `LOCKED` (D58).
+
+The selection cursor is a 2 px `C_WHITE` left bar spanning both lines, dimmed on
+a row the policy will not act on. The cursor owns the scroll; the view moves to
+keep it inside the band.
+
+The orphan section follows the last group. Its header is followed by
+`NOT LOADED` when the active config and boot config were fully read; when either
+was not, `EXCLUSIONS UNVERIFIED` replaces that caption. Files in a shadowed
+directory are prefixed `SHADOWED`. Orphans are read-only (D57).
+
+A confirmation is a centred 600 × 220 `theme_panel` with `CHROME_SATELLITE`, the
+action in the title, the message wrapped at the panel inset in micro scale, and
+`CROSS CONFIRM  CIRCLE CANCEL` at the bottom. An error uses the same panel with
+`NOT WRITTEN` and `CROSS CLOSE`. The modal is drawn after the FRAME strip, so it
+is the topmost surface.
+
+Every session rotates three backups before the config is read:
+`<path>.bak`, `<path>.1.bak`, and `<path>.2.bak`, for the active and shadowed
+plugin configs and `boot_config.txt`. A failed active-config backup makes the
+manager read-only; a failed shadowed or boot backup is a warning. The backup
+files are excluded from the orphan list (D57).
 
 Traces are a 2 px line, not a filled area. At 200 samples across ~500 px an
 area chart collapses into a solid block that hides the shape it exists to show

@@ -59,6 +59,8 @@ typedef struct {
     PluginInfo items[PLUGINS_MAX];
     int count;
     int config_found; /* at least one config.txt was readable */
+    int config_too_large; /* the active config exceeded the read ceiling */
+    int config_invalid; /* a path appeared before the first section header */
     int truncated;    /* the config listed more than PLUGINS_MAX plugins */
 } PluginList;
 
@@ -66,10 +68,13 @@ extern PluginList g_plugins;
 
 /*
  * Append every plugin listed in `text` to `list`. Pure: no file access, so it
- * is host-testable. Duplicates (the same basename from both configs) are
- * merged.
+ * is host-testable. Rows are keyed by full path; the same path listed under
+ * several sections is merged under the most privileged one.
  */
 int plugins_parse(const char *text, PluginList *list);
+
+/* The catalog description for a file name, or "" when the catalog has none. */
+const char *plugins_desc_for(const char *name);
 
 /* Read both configs through the port, then drop entries whose file is missing. */
 void plugins_scan(void);

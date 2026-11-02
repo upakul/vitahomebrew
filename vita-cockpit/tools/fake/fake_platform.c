@@ -1,5 +1,6 @@
 #include "fake_platform.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "core/platform.h"
@@ -29,8 +30,12 @@ static uint64_t s_storage_free[PLATFORM_STORAGE_COUNT];
 static int s_identity_ok;
 static int s_clock_ok;
 
+static void files_reset(void);
+
 void fake_reset(void)
 {
+    files_reset();
+
     s_mem_ok = 1;
     s_mem_mb = 182;
 
@@ -205,55 +210,243 @@ double platform_uptime_seconds(void)
 }
 
 /*
- * A representative tai config, so the preview renders the plugin strip with
- * real content instead of an empty state.
+ * A representative tai config and the files it names. The set exercises the
+ * locked row (henkaku.suprx), a warned row (storagemgr.skprx), a disabled row,
+ * an unknown description, an orphan, and a boot module.
  */
-static const char SAMPLE_CONFIG[] = "# sample tai config\n"
-                                    "*KERNEL\n"
-                                    "ur0:tai/kubridge.skprx\n"
-                                    "ur0:tai/storagemgr.skprx\n"
-                                    "*main\n"
-                                    "ur0:tai/libshacccg.suprx\n"
-                                    "ur0:tai/mystery.suprx\n";
+static const char SAMPLE_CONFIG[] =
+    "# sample tai config\n"
+    "*KERNEL\n"
+    "ur0:tai/kubridge.skprx\n"
+    "ur0:tai/storagemgr.skprx\n"
+    "ur0:tai/0syscall6.skprx\n"
+    "*main\n"
+    "ur0:tai/henkaku.suprx\n"
+    "ur0:tai/libshacccg.suprx\n"
+    "#ur0:tai/shellbat.suprx\n"
+    "#ur0:tai/mystery.suprx\n"
+    "*NPXS10015\n"
+    "ur0:tai/yamt.suprx\n"
+    "*ALL\n"
+    "ur0:tai/vita3g-disable.suprx\n";
 
-int platform_read_text_file(const char *path, char *buf, int cap)
+static const char SAMPLE_BOOT[] =
+    "- load\tur0:tai/taihen.skprx\n"
+    "- load\tur0:tai/henkaku.skprx\n";
+
+#define FAKE_FILES 16
+#define FAKE_FILE_MAX 32768
+
+typedef struct {
+    char path[96];
+    char data[FAKE_FILE_MAX];
+    int len;
+    int used;
+} FakeFile;
+
+static FakeFile s_files[FAKE_FILES];
+static int s_fail_write;
+static int s_fail_backup;
+static int s_fail_read;
+
+static FakeFile *find_file(const char *path)
 {
-    if (path == NULL || buf == NULL || cap <= 1)
-        return -1;
+    if (path == NULL)
+        return NULL;
 
-    if (strcmp(path, "ur0:tai/config.txt") != 0)
-        return -1;
+    for (int i = 0; i < FAKE_FILES; ++i) {
+        if (s_files[i].used && strcmp(s_files[i].path, path) == 0)
+            return &s_files[i];
+    }
 
-    int n = (int)strlen(SAMPLE_CONFIG);
-    if (n >= cap)
-        n = cap - 1;
-
-    memcpy(buf, SAMPLE_CONFIG, (size_t)n);
-    buf[n] = '\0';
-    return n;
+    return NULL;
 }
 
-/*
- * The files the sample config lists. Answering from this table rather than
- * re-testing the suffix keeps the fake from restating core/plugins.c's rule,
- * where the two could drift.
- */
-static const char *const PRESENT[] = {
-    "ur0:tai/kubridge.skprx",
-    "ur0:tai/storagemgr.skprx",
-    "ur0:tai/libshacccg.suprx",
-    "ur0:tai/mystery.suprx",
-};
+static FakeFile *make_file(const char *path)
+{
+    if (path == NULL || strlen(path) >= sizeof(s_files[0].path))
+        return NULL;
+
+    for (int i = 0; i < FAKE_FILES; ++i) {
+        if (!s_files[i].used) {
+            s_files[i].used = 1;
+            snprintf(s_files[i].path, sizeof(s_files[i].path), "%s", path);
+            s_files[i].len = 0;
+            return &s_files[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void add_file(const char *path, const char *text)
+{
+    FakeFile *f = find_file(path);
+    if (f == NULL)
+        f = make_file(path);
+    if (f == NULL)
+        return;
+
+    f->len = (int)strlen(text);
+    if (f->len >= FAKE_FILE_MAX)
+        f->len = FAKE_FILE_MAX - 1;
+    memcpy(f->data, text, (size_t)f->len);
+    f->data[f->len] = '\0';
+}
+
+static void files_reset(void)
+{
+    memset(s_files, 0, sizeof(s_files));
+    s_fail_write = 0;
+    s_fail_backup = 0;
+    s_fail_read = 0;
+
+    add_file("ur0:tai/config.txt", SAMPLE_CONFIG);
+    add_file("ur0:tai/boot_config.txt", SAMPLE_BOOT);
+
+    add_file("ur0:tai/kubridge.skprx", "");
+    add_file("ur0:tai/storagemgr.skprx", "");
+    add_file("ur0:tai/0syscall6.skprx", "");
+    add_file("ur0:tai/henkaku.suprx", "");
+    add_file("ur0:tai/libshacccg.suprx", "");
+    add_file("ur0:tai/shellbat.suprx", "");
+    add_file("ur0:tai/mystery.suprx", "");
+    add_file("ur0:tai/yamt.suprx", "");
+    add_file("ur0:tai/vita3g-disable.suprx", "");
+    add_file("ur0:tai/extra.skprx", "");
+}
+
+void fake_add_file(const char *path, const char *text)
+{
+    add_file(path, text == NULL ? "" : text);
+}
+
+void fake_remove_file(const char *path)
+{
+    FakeFile *f = find_file(path);
+    if (f != NULL)
+        f->used = 0;
+}
+
+void fake_fail_write(int on)
+{
+    s_fail_write = on;
+}
+
+void fake_fail_backup(int on)
+{
+    s_fail_backup = on;
+}
+
+void fake_fail_read(int on)
+{
+    s_fail_read = on;
+}
+
+PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
+                                        int *out_len)
+{
+    if (path == NULL || buf == NULL || cap <= 1)
+        return PLATFORM_READ_UNREADABLE;
+
+    FakeFile *f = find_file(path);
+    if (f == NULL)
+        return PLATFORM_READ_ABSENT;
+    if (s_fail_read)
+        return PLATFORM_READ_UNREADABLE;
+    if (f->len >= cap)
+        return PLATFORM_READ_TOO_LARGE;
+
+    memcpy(buf, f->data, (size_t)f->len);
+    buf[f->len] = '\0';
+    if (out_len != NULL)
+        *out_len = f->len;
+
+    return PLATFORM_READ_OK;
+}
+
+int platform_write_config(const char *path, const char *text, int len)
+{
+    if (path == NULL || text == NULL || len < 0 || s_fail_write)
+        return -1;
+
+    FakeFile *f = find_file(path);
+    if (f == NULL)
+        f = make_file(path);
+    if (f == NULL || len >= FAKE_FILE_MAX)
+        return -1;
+
+    memcpy(f->data, text, (size_t)len);
+    f->data[len] = '\0';
+    f->len = len;
+    return 0;
+}
+
+static int copy_file(const char *src, const char *dst)
+{
+    FakeFile *from = find_file(src);
+    if (from == NULL)
+        return 0;
+
+    FakeFile *to = find_file(dst);
+    if (to == NULL)
+        to = make_file(dst);
+    if (to == NULL || from->len >= FAKE_FILE_MAX)
+        return -1;
+
+    memcpy(to->data, from->data, (size_t)from->len);
+    to->data[from->len] = '\0';
+    to->len = from->len;
+    return 0;
+}
+
+int platform_backup_rotate(const char *path)
+{
+    if (path == NULL || find_file(path) == NULL)
+        return 0;
+    if (s_fail_backup)
+        return -1;
+
+    char bak[128];
+    char one[128];
+    char two[128];
+
+    snprintf(bak, sizeof(bak), "%s.bak", path);
+    snprintf(one, sizeof(one), "%s.1.bak", path);
+    snprintf(two, sizeof(two), "%s.2.bak", path);
+
+    if (find_file(one) != NULL && copy_file(one, two) != 0)
+        return -1;
+    if (find_file(bak) != NULL && copy_file(bak, one) != 0)
+        return -1;
+
+    return copy_file(path, bak);
+}
+
+int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)
+{
+    if (dirname == NULL || cb == NULL)
+        return -1;
+
+    size_t prefix = strlen(dirname);
+    int count = 0;
+
+    for (int i = 0; i < FAKE_FILES; ++i) {
+        if (!s_files[i].used)
+            continue;
+        if (strncmp(s_files[i].path, dirname, prefix) != 0)
+            continue;
+        if (s_files[i].path[prefix] != '/')
+            continue;
+
+        cb(s_files[i].path + prefix + 1, 0, user);
+        ++count;
+    }
+
+    return count;
+}
 
 int platform_file_exists(const char *path)
 {
-    if (path == NULL)
-        return 0;
-
-    for (size_t i = 0; i < sizeof(PRESENT) / sizeof(PRESENT[0]); ++i) {
-        if (strcmp(path, PRESENT[i]) == 0)
-            return 1;
-    }
-
-    return 0;
+    return find_file(path) != NULL;
 }

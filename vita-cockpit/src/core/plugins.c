@@ -4,22 +4,23 @@
 #include <string.h>
 
 #include "core/platform.h"
+#include "core/tai_config.h"
 
 PluginList g_plugins;
 
 /*
- * The two places Enso looks for a plugin list. ur0: is the live one; ux0: is the
- * legacy path older taiHEN setups used, and a console can carry both.
+ * The two places taiHEN looks for a plugin list. taiHEN opens ux0: first and
+ * falls back to ur0:, so the app must use the same order (D55).
  */
 static const char *const CONFIGS[] = {
-    "ur0:tai/config.txt",
     "ux0:tai/config.txt",
+    "ur0:tai/config.txt",
 };
 
 #define CONFIG_COUNT ((int)(sizeof(CONFIGS) / sizeof(CONFIGS[0])))
 
 /* Generous for a config file; the format is a few dozen short lines. */
-#define CONFIG_CAP 4096
+#define CONFIG_CAP 32768
 
 #define PLUGIN_SUFFIX_KERNEL ".skprx"
 #define PLUGIN_SUFFIX_USER ".suprx"
@@ -217,126 +218,26 @@ static const KnownPlugin KNOWN[] = {
 
 #define KNOWN_COUNT ((int)(sizeof(KNOWN) / sizeof(KNOWN[0])))
 
-static int ieq(const char *a, const char *b)
-{
-    while (*a != '\0' && *b != '\0') {
-        char ca = *a;
-        char cb = *b;
-
-        if (ca >= 'A' && ca <= 'Z')
-            ca = (char)(ca - 'A' + 'a');
-        if (cb >= 'A' && cb <= 'Z')
-            cb = (char)(cb - 'A' + 'a');
-
-        if (ca != cb)
-            return 0;
-
-        ++a;
-        ++b;
-    }
-
-    return *a == '\0' && *b == '\0';
-}
-
 /* Case-insensitive compare of a slice, which is not NUL-terminated. */
-static int slice_ieq(const char *s, size_t n, const char *lit)
-{
-    size_t m = strlen(lit);
-
-    if (n != m)
-        return 0;
-
-    for (size_t i = 0; i < n; ++i) {
-        char a = s[i];
-        char b = lit[i];
-
-        if (a >= 'A' && a <= 'Z')
-            a = (char)(a - 'A' + 'a');
-        if (b >= 'A' && b <= 'Z')
-            b = (char)(b - 'A' + 'a');
-
-        if (a != b)
-            return 0;
-    }
-
-    return 1;
-}
-
-static int slice_has_prefix(const char *s, size_t n, const char *lit)
-{
-    size_t m = strlen(lit);
-
-    return n >= m && slice_ieq(s, m, lit);
-}
-
 /*
  * Map a section header to its group. `line` includes the leading '*', which is
- * how taiHEN marks a load target. Unknown targets are title IDs, which is the
- * `*PCSE00001` case (D51).
+ * how taiHEN marks a load target. Section names are compared exactly, because
+ * taiHEN uses strcmp; `*main` is lowercase and `*ALL` is uppercase. Unknown
+ * targets are title IDs (D51).
  */
-static PluginSection section_from_header(const char *line, size_t len)
-{
-    const char *name = line + 1;
-    size_t n = len - 1;
-
-    if (slice_ieq(name, n, "kernel"))
-        return PLUGIN_SECTION_KERNEL;
-    if (slice_ieq(name, n, "main"))
-        return PLUGIN_SECTION_SYSTEM;
-    if (slice_ieq(name, n, "all"))
-        return PLUGIN_SECTION_ALL_TITLES;
-    if (slice_has_prefix(name, n, "npxs"))
-        return PLUGIN_SECTION_SYSTEM_APP;
-
-    return PLUGIN_SECTION_TITLE;
-}
-
-static const char *base_name(const char *path)
-{
-    const char *base = path;
-
-    for (const char *p = path; *p != '\0'; ++p) {
-        if (*p == '/' || *p == ':')
-            base = p + 1;
-    }
-
-    return base;
-}
-
-static int ends_with(const char *s, const char *suffix)
-{
-    size_t n = strlen(s);
-    size_t m = strlen(suffix);
-
-    return n >= m && strcmp(s + n - m, suffix) == 0;
-}
-
-static int is_plugin_path(const char *s)
-{
-    return ends_with(s, PLUGIN_SUFFIX_KERNEL) ||
-           ends_with(s, PLUGIN_SUFFIX_USER);
-}
-
-static void copy(char *dst, size_t cap, const char *src)
-{
-    if (cap == 0)
-        return;
-
-    snprintf(dst, cap, "%s", src);
-}
-
 static void add_plugin(PluginList *list, const char *path, PluginSection section)
 {
-    const char *base = base_name(path);
+    const char *base = tai_base_name(path);
     if (*base == '\0')
         return;
 
-    /* One row per file, not per line. A plugin listed in several sections keeps
-     * the most privileged one: KERNEL outranks SYSTEM, which outranks a system
-     * app, ALL, and a single title (D51). Checking this before the ceiling also
-     * means a repeated line is not a lost plugin. */
+    /* One row per unique path, not per line and not per basename. A plugin
+     * listed in several sections keeps the most privileged one: KERNEL
+     * outranks SYSTEM, which outranks a system app, ALL, and a single title
+     * (D51). Checking this before the ceiling also means a repeated line is
+     * not a lost plugin. */
     for (int i = 0; i < list->count; ++i) {
-        if (ieq(list->items[i].name, base)) {
+        if (tai_ieq(list->items[i].path, path)) {
             if (section < list->items[i].section)
                 list->items[i].section = section;
             return;
@@ -352,14 +253,14 @@ static void add_plugin(PluginList *list, const char *path, PluginSection section
 
     PluginInfo *p = &list->items[list->count];
 
-    copy(p->name, sizeof(p->name), base);
-    copy(p->path, sizeof(p->path), path);
+    tai_copy(p->name, sizeof(p->name), base);
+    tai_copy(p->path, sizeof(p->path), path);
     p->desc[0] = '\0';
     p->section = section;
 
     for (int k = 0; k < KNOWN_COUNT; ++k) {
-        if (ieq(KNOWN[k].name, p->name)) {
-            copy(p->desc, sizeof(p->desc), KNOWN[k].desc);
+        if (tai_ieq(KNOWN[k].name, p->name)) {
+            tai_copy(p->desc, sizeof(p->desc), KNOWN[k].desc);
             break;
         }
     }
@@ -376,6 +277,7 @@ int plugins_parse(const char *text, PluginList *list)
     const char *p = text;
     PluginSection section = PLUGIN_SECTION_TITLE; /* replaced by the first header */
     int have_section = 0;
+    int halted = 0;
 
     while (*p != '\0') {
         const char *line = p;
@@ -400,20 +302,33 @@ int plugins_parse(const char *text, PluginList *list)
         if (len == 0 || *line == '#')
             continue;
 
-        /* A section header selects the group the following paths load into. */
+        /* A section header selects the group the following paths load into.
+         * `*!Section` is a halt point: taiHEN stops parsing there, so every
+         * later path is not reached and is not part of the activated set. */
         if (*line == '*') {
-            section = section_from_header(line, len);
+            if (len >= 2 && line[1] == '!') {
+                halted = 1;
+                have_section = 1;
+                continue;
+            }
+
+            section = tai_section_from_header(line, len);
             have_section = 1;
             continue;
         }
 
+        if (halted)
+            continue;
+
         /*
          * A path before any section header has no load target. taiHEN ignores
-         * it; filing it under a guess would invent a group. [C] No config with
-         * such a line has been observed, but the format has no default target.
+         * it; filing it under a guess would invent a group. The config is
+         * invalid, so HOME shows no counts rather than a partial set.
          */
-        if (!have_section)
+        if (!have_section) {
+            list->config_invalid = 1;
             continue;
+        }
 
         char path[PLUGIN_PATH_MAX];
         if (len >= sizeof(path))
@@ -422,7 +337,7 @@ int plugins_parse(const char *text, PluginList *list)
         memcpy(path, line, len);
         path[len] = '\0';
 
-        if (!is_plugin_path(path))
+        if (!tai_is_plugin_path(path))
             continue;
 
         int before = list->count;
@@ -434,19 +349,55 @@ int plugins_parse(const char *text, PluginList *list)
     return added;
 }
 
+const char *plugins_desc_for(const char *name)
+{
+    if (name == NULL)
+        return "";
+
+    for (int k = 0; k < KNOWN_COUNT; ++k) {
+        if (tai_ieq(KNOWN[k].name, name))
+            return KNOWN[k].desc;
+    }
+
+    return "";
+}
+
 void plugins_scan(void)
 {
     memset(&g_plugins, 0, sizeof(g_plugins));
 
-    char buf[CONFIG_CAP];
+    static char buf[CONFIG_CAP];
 
+    /*
+     * taiHEN opens ux0: first and falls back to ur0: only when ux0: cannot be
+     * opened. A readable empty ux0: file is still the active config, and a
+     * too-large file is active but unreadable; neither falls through to ur0:.
+     */
     for (int i = 0; i < CONFIG_COUNT; ++i) {
-        int n = platform_read_text_file(CONFIGS[i], buf, (int)sizeof(buf));
-        if (n <= 0)
-            continue;
+        int n = 0;
+        PlatformReadStatus status = platform_read_config(
+            CONFIGS[i], buf, (int)sizeof(buf), &n);
 
-        g_plugins.config_found = 1;
-        plugins_parse(buf, &g_plugins);
+        if (status == PLATFORM_READ_OK) {
+            g_plugins.config_found = 1;
+            if (n > 0)
+                plugins_parse(buf, &g_plugins);
+            break;
+        }
+
+        if (status == PLATFORM_READ_TOO_LARGE) {
+            g_plugins.config_too_large = 1;
+            break;
+        }
+    }
+
+    /*
+     * A config with a path before the first section is invalid. taiHEN does not
+     * load a partial list, so HOME shows no counts rather than a subset.
+     */
+    if (g_plugins.config_invalid) {
+        g_plugins.count = 0;
+        g_plugins.truncated = 0;
     }
 
     /*

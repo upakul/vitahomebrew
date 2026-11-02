@@ -6,8 +6,10 @@ What COCKPIT is, what it is not, and where it stands.
 
 ## 1. Purpose
 
-A single-screen, always-live readout of the machine it runs on. It is an
-instrument panel: it measures, it does not configure.
+A live readout of the machine it runs on, plus one screen where the taiHEN
+plugin list can be changed. It is an instrument panel first: every number it
+shows is real, and the plugin manager exists because a readout you cannot act
+on becomes an inventory.
 
 The product rule is that **every number on screen is real**. A fabricated
 metric would poison the credibility of the whole panel, so anything the
@@ -19,11 +21,12 @@ platform cannot report is omitted rather than approximated.
 
 | Region | Contents |
 |---|---|
+| HOME header | wordmark, clock, HOME/PLUGINS tabs, activated-plugin summary |
 | CORE | ARM, GPU, and bus clock; free user / CDRAM / physical-contiguous pools; 20 s memory trace |
 | STORAGE | `ux0:`, `uma0:` used and total, with the unit chosen from each volume's size (GB or MB), segmented meters |
 | POWER | battery percent, charging state, temperature, voltage, cycles, health |
 | SYSTEM | firmware string, app run time, device model |
-| PLUGINS | the taiHEN plugins actually loaded, with a one-line role |
+| PLUGINS tab | the full config ledger, grouped by load target, with enable/disable, lock/warn confirmations, pending state, and read-only orphans |
 | FRAME | measured FPS, frame time, 20 s trace |
 
 The wall clock and the wordmark are header chrome, not a panel, so identity
@@ -31,14 +34,15 @@ appears exactly once on screen.
 
 ### v1 — out
 
-- Persistence. COCKPIT writes nothing to disk.
 - Network, audio, camera, motion.
-- Configuration or a settings screen.
+- Installing, deleting, or downloading plugin files.
+- Editing `ur0:tai/boot_config.txt` or any Enso boot file.
+- A third tab, batch toggle, presets, or a config diff/restore UI.
 - Any kernel plugin. This is a userland app.
 
 ### Later
 
-App and bubble inventory, per-title storage attribution, taiHEN plugin status,
+App and bubble inventory, per-title storage attribution, plugin presets,
 network state, screenshot browser, theme switching. The panel contract exists so
 these are additive, not invasive. See §7.
 
@@ -67,7 +71,10 @@ required. On the Vita, open VitaShell, press Select to start the FTP server, the
 run `send.sh` with the address it shows.
 
 Scroll the panel area with the d-pad or the left stick. The header and the
-FRAME strip stay pinned; a thin bar on the right shows position.
+FRAME strip stay pinned; a thin bar on the right shows position. Press L or R to
+switch between HOME and PLUGINS. On PLUGINS, up/down moves the selection, Cross
+toggles the selected plugin, and Circle cancels a confirmation. A change is
+written immediately and applies on the next boot.
 
 Install by selecting the VPK in `ux0:data` inside VitaShell and pressing Cross.
 The bubble appears on LiveArea.
@@ -82,7 +89,7 @@ makes "which build is on the Vita?" answerable.
 The artifact is named:
 
 ```
-build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b13.vpk
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b28.vpk
 ```
 
 | Part | Source | Changes |
@@ -121,17 +128,18 @@ community knowledge.
 
 | Area | Status |
 |---|---|
-| Builds and packages | `[V]` clean build, 89 KB VPK, no warnings |
-| Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh` |
-| Plugin list (`ur0:`/`ux0:tai/config.txt`) | `[V]` host harness keeps a 19-entry real config in full and groups it as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; host tests cover commented entries, long names, section mapping, priority merge, the 64-entry ceiling, and visible truncation |
+| Builds and packages | `[V]` clean build, 108 KB VPK (b28), no warnings |
+| Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh`, 191 checks |
+| Plugin list (`ur0:`/`ux0:tai/config.txt`) | `[V]` host harness keeps a 19-entry real config in full and groups it as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; host tests cover commented entries, long names, section mapping, priority merge, the 64-entry ceiling, full-path duplicate rows, `*!` halts, lock/warn policy, and backup rotation |
 | Clocks, memory, power APIs declared in SDK | `[V]` header inspection |
 | Clock row follows a runtime clock change | `[C]` — the getters are re-read every sample, so an overclock applied by a plugin should appear within ~100 ms without a restart; not yet observed on hardware |
 | `SceIoDevInfo` layout | `[V]` `psp2common/kernel/iofilemgr.h`, 24 bytes |
 | `sceIoDevctl("ux0:", 0x3001, …)` command | `[V]` `psp2/io/devctl.h` demonstrates it verbatim |
 | Storage result unit (bytes) | `[C]` — the one claim still unconfirmed |
 | Device model codes | `[V]` `psp2common/kernel/sysmem.h` |
-| Screen layout and typography | `[V]` host preview render, four states; CORE/POWER outlines whole at scroll 0 (D53) |
-| Renders on hardware | `[V]` 2026-11-02: text, clocks, memory, power, identity and frame all draw on the console |
+| Screen layout and typography | `[V]` host preview render, nine states; tabs, summary, ledger, modal, and CORE/POWER outlines at scroll 0 (D53, D54, D60) |
+| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the tabbed build b28 is not on hardware yet |
+| Config write path | `[C]` the adapter's `.new` write, read-back, and rename-over are implemented and build; host tests exercise the fake's in-place overwrite, not the adapter transaction, and `sceIoRename` replacement is unverified on the target |
 | STORAGE reads | `[V]` both volumes report on hardware under `UNSAFE` (D42); `ux0:` also works on the safe build via `sceAppMgrGetDevInfo` (D38) |
 | Behaviour not listed above | unverified |
 
@@ -155,12 +163,17 @@ Panels degrade, they do not crash.
 - A storage mount that does not exist (no `uma0:` without a second volume)
   is shown as absent, not as an error. A mount whose call *failed* shows the
   return code, so a permission problem is not mistaken for a missing card.
+- A config write that fails leaves the original file untouched and shows
+  `WRITE FAILED`; a failed session backup makes the plugin manager read-only
+  rather than editing without a net.
+- A config that is too large, invalid, or unreadable is shown read-only with the
+  reason, never rewritten from a truncated read.
 
 ## 7. Roadmap
 
 | Step | Adds | Needs |
 |---|---|---|
-| v1 | the six regions above | done — hardware-verified |
+| v1 | the dashboard and the plugin manager | b28 builds and is host-tested; the tabbed UI is pending the console check |
 | v2 | app inventory, per-title storage | `sceAppMgrGetAppInfo`, directory walk of `ux0:app` |
 | v3 | network status | `SceNetCtl` |
 | v4 | theme switching, a second visual language | a theme abstraction in `gfx/theme` |

@@ -914,3 +914,112 @@ scrollbar track and the empty meter cell, nothing else.
 would be clipped at the new edge, and shrinking `VIEW_H` to compensate would cut
 the bottom of STORAGE and SYSTEM at scroll 0. Moving FRAME down would buy the
 room from the bottom margin the layout already spends.
+
+## D54 — Tabbed screens with one explicit UI state
+
+**Status:** Accepted (supersedes D16's single-screen assumption)
+**Context:** COCKPIT was one screen, and D16's metrics global was written by one
+sampler and read by the panels. A second screen adds a second consumer set but
+does not add a second writer.
+**Decision:** `UiState` in `ui/ui_state.h` owns the active tab, both scroll
+offsets, the selected row, and the modal. `screen_draw(t, ui)` receives a
+read-only pointer. HOME and PLUGINS share the header and FRAME strip; only the
+region between them changes. The metrics global keeps its single writer.
+**Consequence:** Tab state is not hidden in a panel or a second global. The old
+`layout_update()` and the PLUGINS slot in the home layout table are removed;
+HOME has a fixed canvas and no scrollbar.
+**Rejected:** a global `scroll` per panel and an `if (tab)` branch inside every
+panel. Both make a third tab a rewrite instead of an addition.
+
+## D55 — The active plugin config follows taiHEN, not the old app order
+
+**Status:** Accepted (supersedes the ur0-first scan)
+**Context:** taiHEN opens `ux0:tai/config.txt` first and falls back to
+`ur0:tai/config.txt`. COCKPIT read ur0 first, so on a console with both files
+the dashboard showed the shadowed copy.
+**Decision:** Resolve ux0 first; use ur0 only when ux0 cannot be read. A
+readable empty ux0 file is active. A too-large or invalid file is read-only.
+The active path is frozen at launch, and PLUGINS names the active path and any
+ignored one.
+**Consequence:** The dashboard now describes the file taiHEN actually loads. A
+stale ux0 no longer hides a working ur0 silently.
+**Rejected:** merging both files, and editing ur0 while ux0 shadows it.
+
+## D56 — A byte-preserving line model, keyed by full path
+
+**Status:** Accepted
+**Context:** The old parser dropped comments and missing files, merged entries
+by basename, and kept no offsets, so it could not support a toggle.
+**Decision:** The editor keeps every line's raw span, line ending, section,
+active flag, and reachability. Rows are keyed by a normalized, case-insensitive
+full path. Section names are case-sensitive and `*!Section` halts parsing. A
+row shows its basename unless two rows share it, in which case the full path is
+shown.
+**Consequence:** A toggle changes only the `#` markers on the lines it names.
+Two files with the same basename in ur0 and ux0 stay distinct.
+**Rejected:** re-emitting a normalized config, and basename identity.
+
+## D57 — The PLUGINS screen is an editable ledger with transactional writes
+
+**Status:** Accepted
+**Context:** The ledger was read-only; a config write can leave a partial file.
+**Decision:** PLUGINS is a full-screen ledger. Cross toggles a row. A write
+removes a stale `.new`, writes a sibling, verifies it by read-back, checks the
+active `.bak`, and renames the sibling over the original. At session start the
+editor rotates `.bak` to `.1.bak` and `.1.bak` to `.2.bak`, then copies the
+current file to `.bak`. A failed active-config backup makes the manager
+read-only; a failure on another file only warns. `boot_config.txt` is read,
+never written.
+**Consequence:** A write never truncates the live file. The previous three
+sessions are recoverable from the tai directory, and `.new`/`.bak` files are
+excluded from the orphan list.
+**Rejected:** in-place truncate-and-write; a single overwritten `.bak`; editing
+`boot_config.txt`.
+
+## D58 — Lock the recovery surface, warn the load-bearing plugins
+
+**Status:** Accepted
+**Context:** Research found nothing in `config.txt` is boot-critical, but
+`henkaku.suprx` is the HENkaku Settings and reload surface, and a storage
+driver in `config.txt` can be load-bearing for `ux0:`.
+**Decision:** Lock `henkaku.suprx` (it can be restored but not disabled). Lock
+`taihen.skprx`, `henkaku.skprx`, and `yamt.skprx` by name if they appear in
+`config.txt`. Warn on `0syscall6`, `nonpdrm`, `repatch`, `nopsmdrm`,
+`libshacccg`, `yamt.suprx`, `yamt_helper`, `reVitaMotion`, `storagemgr`,
+`usbmc`, and `usbmcm`. KERNEL enables always confirm; the warned files confirm
+in both directions.
+**Consequence:** The manager cannot remove its own recovery UI or silently
+disable a mount driver. A KERNEL disable that is not warned stays low-friction.
+**Rejected:** locking every warned plugin, and warning every KERNEL disable;
+neither has evidence that the entry can stop a boot.
+
+## D59 — HOME counts the launch activated set; pending is session-scoped
+
+**Status:** Accepted
+**Context:** The user wants a count of activated plugins, not a count of edits.
+A pending enable is not loaded until the reboot.
+**Decision:** HOME counts the launch config's activated set: enabled, reached,
+and present on disk. A pending enable does not count until the reboot; a
+pending disable keeps counting. Pending is a per-line diff against the launch
+snapshot. The baseline is session-scoped and is not persisted.
+**Consequence:** A restart before the reboot re-reads the edited file as the
+new baseline, so the pending marker is a session convenience. This is
+documented; persisting it would need a boot identity the platform does not
+expose reliably.
+**Rejected:** reflecting pending edits in the total; a persisted baseline with
+a guessed boot marker.
+
+## D60 — Tabs and the HOME summary live in the header chrome
+
+**Status:** Accepted
+**Context:** The old ledger slot starts at screen y 482, below the 472 band, so
+a summary there is invisible at launch.
+**Decision:** Tabs sit between the wordmark and clock at y 20, with a 2 px
+yellow underline on the active tab. The HOME summary shares the hazard line at
+y 48, right-aligned in micro scale; a fault replaces it with the hazard band.
+When the run would cross the tab block, drop the word ACTIVE and then group
+counts from TITLES upward; the total and pending token always survive.
+**Consequence:** HOME keeps both panel rows at scroll 0 and has no scrollbar;
+the summary costs no viewport height.
+**Rejected:** a new pinned band (reduces the viewport), and a summary in the
+old ledger slot.

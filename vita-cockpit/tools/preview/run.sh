@@ -27,7 +27,9 @@ SRC="$ROOT/src"
   "$SRC/gfx/font.c" \
   "$SRC/gfx/theme.c" \
   "$SRC/core/history.c" \
+  "$SRC/core/input.c" \
   "$SRC/core/metrics.c" \
+  "$SRC/core/plugin_editor.c" \
   "$SRC/core/plugins.c" \
   "$SRC/panels/core.c" \
   "$SRC/panels/frame.c" \
@@ -37,6 +39,8 @@ SRC="$ROOT/src"
   "$SRC/panels/storage.c" \
   "$SRC/panels/system.c" \
   "$SRC/ui/header.c" \
+  "$SRC/ui/modal.c" \
+  "$SRC/ui/tabbar.c" \
   -lz -lm \
   -o "$OUT/preview"
 

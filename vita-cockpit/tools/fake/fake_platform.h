@@ -28,4 +28,10 @@ void fake_set_storage_absent(int index);
 void fake_set_identity_absent(void);
 void fake_set_clock_absent(void);
 
+void fake_add_file(const char *path, const char *text);
+void fake_remove_file(const char *path);
+void fake_fail_write(int on);
+void fake_fail_backup(int on);
+void fake_fail_read(int on);
+
 #endif

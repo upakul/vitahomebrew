@@ -4,6 +4,7 @@
 
 #include <psp2/appmgr.h>
 #include <psp2/io/devctl.h>
+#include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/modulemgr.h>
@@ -11,6 +12,7 @@
 #include <psp2/kernel/sysmem.h>
 #include <psp2/power.h>
 #include <psp2/rtc.h>
+#include <stdio.h>
 
 /*
  * The PSP2 SDK adapter. This is the only file in COCKPIT that may include
@@ -247,25 +249,6 @@ double platform_uptime_seconds(void)
     return (double)sceKernelGetProcessTimeWide() / 1000000.0;
 }
 
-int platform_read_text_file(const char *path, char *buf, int cap)
-{
-    if (path == NULL || buf == NULL || cap <= 1)
-        return -1;
-
-    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
-    if (fd < 0)
-        return -1;
-
-    int n = sceIoRead(fd, buf, (SceSize)(cap - 1));
-    (void)sceIoClose(fd);
-
-    if (n < 0)
-        return -1;
-
-    buf[n] = '\0';
-    return n;
-}
-
 int platform_file_exists(const char *path)
 {
     if (path == NULL)
@@ -275,4 +258,156 @@ int platform_file_exists(const char *path)
     memset(&st, 0, sizeof(st));
 
     return sceIoGetstat(path, &st) >= 0;
+}
+
+PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
+                                        int *out_len)
+{
+    if (path == NULL || buf == NULL || cap <= 1)
+        return PLATFORM_READ_UNREADABLE;
+
+    SceIoStat st;
+    memset(&st, 0, sizeof(st));
+
+    if (sceIoGetstat(path, &st) < 0)
+        return PLATFORM_READ_ABSENT;
+    if (st.st_size >= cap)
+        return PLATFORM_READ_TOO_LARGE;
+
+    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (fd < 0)
+        return PLATFORM_READ_UNREADABLE;
+
+    int n = sceIoRead(fd, buf, (SceSize)(cap - 1));
+    (void)sceIoClose(fd);
+
+    if (n < 0)
+        return PLATFORM_READ_UNREADABLE;
+
+    buf[n] = '\0';
+    if (out_len != NULL)
+        *out_len = n;
+
+    return PLATFORM_READ_OK;
+}
+
+int platform_write_config(const char *path, const char *text, int len)
+{
+    if (path == NULL || text == NULL || len < 0)
+        return -1;
+
+    char tmp[PLATFORM_PATH_MAX];
+    int n = snprintf(tmp, sizeof(tmp), "%s.new", path);
+    if (n <= 0 || n >= (int)sizeof(tmp))
+        return -1;
+
+    (void)sceIoRemove(tmp);
+
+    SceUID fd = sceIoOpen(tmp, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_EXCL, 0666);
+    if (fd < 0)
+        return -1;
+
+    int done = 0;
+    while (done < len) {
+        int w = sceIoWrite(fd, text + done, (SceSize)(len - done));
+        if (w <= 0) {
+            (void)sceIoClose(fd);
+            (void)sceIoRemove(tmp);
+            return -1;
+        }
+        done += w;
+    }
+
+    if (sceIoClose(fd) < 0) {
+        (void)sceIoRemove(tmp);
+        return -1;
+    }
+
+    static char check[PLATFORM_CONFIG_MAX];
+    int checked = 0;
+    if (platform_read_config(tmp, check, (int)sizeof(check), &checked) !=
+            PLATFORM_READ_OK ||
+        checked != len || memcmp(check, text, (size_t)len) != 0) {
+        (void)sceIoRemove(tmp);
+        return -1;
+    }
+
+    /* [C] rename-over-existing is community-reported and not verified on the
+     * target. If it is refused, the original and the verified backup remain. */
+    if (sceIoRename(tmp, path) < 0) {
+        (void)sceIoRemove(tmp);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int copy_file(const char *src, const char *dst)
+{
+    static char buf[PLATFORM_CONFIG_MAX];
+    int n = 0;
+
+    PlatformReadStatus status = platform_read_config(src, buf,
+                                                     (int)sizeof(buf), &n);
+    if (status == PLATFORM_READ_ABSENT)
+        return 0;
+    if (status != PLATFORM_READ_OK)
+        return -1;
+
+    return platform_write_config(dst, buf, n);
+}
+
+int platform_backup_rotate(const char *path)
+{
+    if (path == NULL || !platform_file_exists(path))
+        return 0;
+
+    char bak[PLATFORM_PATH_MAX];
+    char one[PLATFORM_PATH_MAX];
+    char two[PLATFORM_PATH_MAX];
+
+    if (snprintf(bak, sizeof(bak), "%s.bak", path) >= (int)sizeof(bak) ||
+        snprintf(one, sizeof(one), "%s.1.bak", path) >= (int)sizeof(one) ||
+        snprintf(two, sizeof(two), "%s.2.bak", path) >= (int)sizeof(two))
+        return -1;
+
+    if (platform_file_exists(one) && copy_file(one, two) != 0)
+        return -1;
+    if (platform_file_exists(bak) && copy_file(bak, one) != 0)
+        return -1;
+
+    return copy_file(path, bak);
+}
+
+int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)
+{
+    if (dirname == NULL || cb == NULL)
+        return -1;
+
+    SceUID dfd = sceIoDopen(dirname);
+    if (dfd < 0)
+        return -1;
+
+    int count = 0;
+    SceIoDirent entry;
+
+    for (;;) {
+        memset(&entry, 0, sizeof(entry));
+        int n = sceIoDread(dfd, &entry);
+        if (n < 0) {
+            (void)sceIoDclose(dfd);
+            return -1;
+        }
+        if (n == 0)
+            break;
+
+        if (strcmp(entry.d_name, ".") == 0 || strcmp(entry.d_name, "..") == 0)
+            continue;
+
+        cb(entry.d_name, SCE_SO_ISDIR(entry.d_stat.st_mode) ? 1 : 0, user);
+        ++count;
+    }
+
+    (void)sceIoDclose(dfd);
+    return count;
 }

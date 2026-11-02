@@ -25,3 +25,16 @@ CC="${CC:-cc}"
   -o "$OUT/test_metrics"
 
 "$OUT/test_metrics"
+
+"$CC" -std=c99 -O1 -g \
+  -Wall -Wextra \
+  -I"$ROOT/src" \
+  -I"$ROOT/tools/fake" \
+  "$ROOT/tools/test/test_editor.c" \
+  "$ROOT/tools/fake/fake_platform.c" \
+  "$ROOT/src/core/input.c" \
+  "$ROOT/src/core/plugin_editor.c" \
+  "$ROOT/src/core/plugins.c" \
+  -o "$OUT/test_editor"
+
+"$OUT/test_editor"

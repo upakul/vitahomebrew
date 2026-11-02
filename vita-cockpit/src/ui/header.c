@@ -7,6 +7,7 @@
 #include "gfx/font.h"
 #include "gfx/layout.h"
 #include "gfx/theme.h"
+#include "ui/tabbar.h"
 
 /*
  * The header is chrome plus a clock. It carries no metric that a panel already
@@ -108,12 +109,15 @@ static void draw_clock(void)
                     g_metrics.clock_valid ? C_WHITE : C_DIM);
 }
 
-void header_draw(void)
+void header_draw(const UiState *ui)
 {
     draw_wordmark();
     draw_clock();
+    tabbar_draw(ui);
 
-    /* D15: only ever drawn for a real fault, and it never reflows the layout. */
+    /* D15: only ever drawn for a real fault, and it never reflows the layout.
+     * It shares the summary line, so a fault replaces the summary rather than
+     * covering the tabs. */
     if (g_metrics.alert)
         theme_hazard(0.0f, HAZARD_Y, (float)SCREEN_W, HAZARD_H);
 }

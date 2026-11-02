@@ -24,6 +24,10 @@
 #define PLATFORM_STORAGE_COUNT 2
 #define PLATFORM_FW_MAX 32
 
+/* One config path and one config body, shared by the adapter and the editor. */
+#define PLATFORM_PATH_MAX 128
+#define PLATFORM_CONFIG_MAX 32768
+
 /*
  * Mounts, in the order platform_read_storage() indexes them.
  *
@@ -111,13 +115,46 @@ void platform_read_clock(PlatformClock *out);
  * Text file access, for the plugin config.
  *
  * Reading a file is a device detail, so it crosses the port like any other
- * reading. `platform_read_text_file` NUL-terminates and returns the byte count,
- * or a negative value if the file is missing or unreadable; `platform_file_exists`
- * answers without reading, which is what "is this plugin actually loaded"
- * needs.
+ * reading. `platform_file_exists` answers without reading, which is what "is
+ * this plugin actually loaded" needs.
  */
-int platform_read_text_file(const char *path, char *buf, int cap);
 int platform_file_exists(const char *path);
+
+/*
+ * The config editor's file operations. They live in the same adapter because
+ * every SDK call for the plugin config belongs to one module (D7).
+ *
+ * `platform_read_config` distinguishes a missing file from an empty one, a
+ * file over the caller's ceiling, and an unreadable file; a byte count alone
+ * cannot express those.
+ */
+typedef enum {
+    PLATFORM_READ_ABSENT = 0,
+    PLATFORM_READ_OK,
+    PLATFORM_READ_TOO_LARGE,
+    PLATFORM_READ_UNREADABLE,
+} PlatformReadStatus;
+
+PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
+                                        int *out_len);
+
+/*
+ * Replace `path` with `text`. Writes a sibling, verifies it by read-back, then
+ * renames it over the original. Returns 0 on success, negative on failure; the
+ * original is untouched on failure.
+ */
+int platform_write_config(const char *path, const char *text, int len);
+
+/*
+ * Rotate `<path>.bak` -> `<path>.1.bak` -> `<path>.2.bak` and copy the current
+ * file to `<path>.bak`. A missing file is a no-op. Returns 0 on success,
+ * negative when a copy or verification fails.
+ */
+int platform_backup_rotate(const char *path);
+
+/* Directory listing for the orphan section. Return negative on failure. */
+typedef void (*PlatformDirCallback)(const char *name, int is_dir, void *user);
+int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user);
 
 /* Seconds since the calling process started. Not system uptime. */
 double platform_uptime_seconds(void);

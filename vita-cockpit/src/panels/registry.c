@@ -2,33 +2,27 @@
 
 #include "gfx/layout.h"
 #include "gfx/theme.h"
-#include "panels/plugins.h"
 
 extern const Panel panel_core;
 extern const Panel panel_storage;
 extern const Panel panel_power;
 extern const Panel panel_system;
-extern const Panel panel_plugins;
 extern const Panel panel_frame;
 
 /*
- * The layout table (D11, D17, D43, D45).
+ * The home layout table (D11, D17, D43, D45).
  *
  * Coordinates are canvas coordinates: y = 0 is the top of the scrolling panel
  * area, not the top of the screen. The app offsets every rect by the current
  * scroll and clips to the viewport, so the canvas can be taller than the screen
  * without any panel knowing about scrolling.
  *
+ * The plugin ledger is no longer part of HOME; it lives on its own tab (D57).
+ *
  *   CORE    552 x 210   hero, clocks and memory
  *   POWER   360 x 210   battery
  *   STORAGE 552 x 172   volumes
  *   SYSTEM  360 x 172   identity
- *   PLUGINS 924 x self-sizing, below both columns
- *
- * Both columns share both seams: row one is 210 tall, row two 172, so the
- * horizontal gap between the rows runs unbroken across the screen. The first
- * version ended both columns at the same y but started STORAGE 24 px below
- * SYSTEM, which read as a misaligned grid rather than a deliberate one (D48).
  */
 
 #define LEFT_W 552.0f
@@ -53,32 +47,6 @@ extern const Panel panel_frame;
 #define SYSTEM_Y STORAGE_Y
 #define SYSTEM_H STORAGE_H
 
-#define PLUGINS_Y (STORAGE_Y + STORAGE_H + SP_3)
-
-/*
- * The plugin list sizes itself to its content (D47), so the PLUGINS rect is
- * computed rather than compiled in. layout_update() must be called after the
- * plugin scan, before the first frame.
- */
-static PanelSlot *plugins_slot(void)
-{
-    for (int i = 0; i < g_layout_count; ++i) {
-        if (g_layout[i].panel == &panel_plugins)
-            return &g_layout[i];
-    }
-
-    return NULL;
-}
-
-void layout_update(void)
-{
-    PanelSlot *slot = plugins_slot();
-
-    /* Fail closed: an unfound slot keeps the compiled-in height. */
-    if (slot != NULL)
-        slot->rect.h = plugins_panel_height();
-}
-
 int layout_canvas_height(void)
 {
     float bottom = 0.0f;
@@ -90,12 +58,12 @@ int layout_canvas_height(void)
             bottom = b;
     }
 
-    return (int)(bottom + SP_3);
+    return (int)bottom;
 }
 
 int layout_max_scroll(void)
 {
-    int max = VIEW_TOP_GAP + layout_canvas_height() - VIEW_H;
+    int max = layout_canvas_height() - (VIEW_H - VIEW_TOP_GAP);
 
     return max > 0 ? max : 0;
 }
@@ -123,9 +91,6 @@ PanelSlot g_layout[] = {
     {&panel_system,
      {(float)(MARGIN + LEFT_W + GAP), SYSTEM_Y, RIGHT_W, SYSTEM_H},
      CHROME_SATELLITE},
-    {&panel_plugins,
-     {(float)MARGIN, PLUGINS_Y, (float)(SCREEN_W - 2 * MARGIN), 0.0f},
-     CHROME_LIST},
 };
 
 const int g_layout_count = (int)(sizeof(g_layout) / sizeof(g_layout[0]));

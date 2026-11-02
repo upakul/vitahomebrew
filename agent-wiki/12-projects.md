@@ -201,23 +201,26 @@ not in `config.txt`).
 
 ### What it does
 
-A system dashboard: clocks, memory, storage, power, identity, and frame health on
-one screen, in a Cyberpunk 2077 HUD style.
+A two-tab system dashboard: clocks, memory, storage, power, identity, and frame
+health on HOME, plus a PLUGINS ledger that can enable or disable a taiHEN plugin
+from the console. Cyberpunk 2077 HUD as the visual reference.
 
 ### Status
 
-**Verified on hardware.** Runs on the 3.65 console: every panel renders, and
-`ux0:` reads `17.7/119.3 GB` through `sceAppMgrGetDevInfo`. The shipped build is
-`UNSAFE` by default (D42) because `uma0:` capacity needs `sceIoDevctl`, which the
-safe authid refuses; `./build.sh --safe` still builds the restricted variant.
-`uma0:` reads `--` when no second volume is mounted.
+**Hardware-verified at b13; b28 is built and host-tested, pending the tabbed
+check.** Runs on the 3.65 console: every panel renders, and `ux0:` reads
+`17.7/119.3 GB` through `sceAppMgrGetDevInfo`. The shipped build is `UNSAFE` by
+default (D42) because `uma0:` capacity needs `sceIoDevctl`, which the safe authid
+refuses; `./build.sh --safe` still builds the restricted variant. `uma0:` reads
+`--` when no second volume is mounted.
 
-PLUGINS lists every activated entry from the tai configs, grouped by load target
-— KERNEL, SYSTEM, SYSTEM APPS, ALL TITLES, TITLES — and capped at 64 rows.
-Commented-out entries are ignored; a file listed in several sections appears
-once, under the most privileged one; a file outside the catalog gets a row and
-says `N/A` (D51, D52). The description table is the full AutoPlugin2 Vita
-catalog (155 rows, D47, D50).
+PLUGINS resolves the active config the way taiHEN does (D55), lists every path
+active or commented, and groups by load target — KERNEL, SYSTEM, SYSTEM APPS,
+ALL TITLES, TITLES. One row per unique full path; a duplicate basename shows the
+full path. `henkaku.suprx` and the three boot modules are locked; the DRM,
+storage, and other load-bearing plugins warn before a change (D58). Each session
+rotates three backups before reading the config (D57), and a change is written
+transactionally for the next boot.
 
 The route here was three hardware faults, each fixed by evidence rather than
 guesswork:
@@ -238,12 +241,12 @@ guesswork:
 
 | Path | What |
 |---|---|
-| `src/core/` | `platform.h` (the port), `metrics` (policy), `history` (ring), `plugins` (tai config + catalog) |
-| `src/platform/` | `platform_psp2.c`, the only SDK sampling adapter |
+| `src/core/` | `platform.h` (the port), `metrics` (policy), `history` (ring), `plugins` (launch set + catalog), `plugin_editor` (line model, backups, toggle), `input` (edges and repeats) |
+| `src/platform/` | `platform_psp2.c`, the only SDK sampling and file adapter |
 | `src/gfx/` | `draw` (vita2d adapter), `font` (5×7 face), `theme` (palette, chrome, meters, traces) |
-| `src/panels/` | `core`, `storage`, `power`, `system`, `plugins`, `frame`, plus `registry.c` with the layout table |
-| `src/ui/` | `header` — wordmark, clock, hazard band |
-| `src/app/` | lifecycle, frame loop, and `screen_draw` |
+| `src/panels/` | `core`, `storage`, `power`, `system`, `plugins` (the ledger), `frame`, plus `registry.c` with the home layout table |
+| `src/ui/` | `header`, `tabbar` (tabs and summary), `modal` |
+| `src/app/` | lifecycle, frame loop, `UiState`, and `screen_draw` |
 | `tools/fake/` | shared mutable port double |
 | `tools/test/` | host tests for the sampling policy |
 | `tools/preview/` | host renderer: draws the real screen to PNG without a Vita |
@@ -255,15 +258,15 @@ cd vita-cockpit
 ./build.sh
 ```
 
-Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b13.vpk`).
+Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b28.vpk`).
 `build.sh` counts distinct builds in `BUILD_NUMBER`: unchanged sources reuse the
 number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-ip>`.
 
 ### Test and preview without hardware
 
 ```sh
-./tools/test/run.sh      # 87 assertions over the sampling policy and plugin table
-./tools/preview/run.sh   # PNGs of four states, with a draw-call budget
+./tools/test/run.sh      # 191 assertions over the sampling policy, plugin editor, backups, and input
+./tools/preview/run.sh   # nine PNG states, with a draw-call budget
 ```
 
 ### Preview without hardware
@@ -273,7 +276,7 @@ cd vita-cockpit
 ./tools/preview/run.sh
 ```
 
-Writes `build/preview/preview-{healthy,alert,scrolled,absent}.png`. It links the shipped
+Writes nine `build/preview/preview-*.png` states (the authoritative list is in `vita-cockpit/README.md`). It links the shipped
 composition (`app/screen.c`), the real `theme`, `font`, `panels`, `header`, and
 `core`, a software vita2d shim, and the shared fake platform in `tools/fake/`.
 Each scene is produced by driving the fake port through `metrics_sample_slow()`,

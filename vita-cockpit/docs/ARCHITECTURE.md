@@ -57,21 +57,33 @@ constructs and starts.
 | `core/history` | fixed-capacity ring of samples | libc |
 | `core/platform.h` | the port: raw device readings, no SDK types | stdint |
 | `core/metrics` | convert raw readings, maintain history, decide alerts | `core/*` |
-| `core/plugins` | parse tai config, group by load target, resolve loaded plugins | `core/*` |
+| `core/plugins` | parse the launch config, group by load target, resolve the activated set | `core/*` |
+| `core/tai_config.h` | shared taiHEN grammar: suffixes, section names, path keys | `core/plugins.h` |
+| `core/plugin_editor` | byte-preserving config model, rows, backups, toggle plan | `core/*` |
+| `core/input` | pad edges and repeats, no SDK types | libc |
 | `platform/platform_psp2` | implement the port against the SDK | `psp2/*`, `core/platform.h` |
 | `gfx/layout` | screen geometry constants shared by `panels/` and `ui/` | nothing |
 | `gfx/draw` | rect, batched rects, line, triangle, additive blend, clip | `vita2d.h`, `psp2/gxm.h` |
 | `gfx/font` | 5×7 glyph table, text layout, glyph-rect enumeration | `gfx/draw` |
 | `gfx/theme` | palette, panel chrome, meters, traces, formatters | `gfx/*`, `core/history` |
 | `panels/*` | one panel each; draw one region | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout` |
-| `ui/header` | wordmark, clock, hazard band | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout` |
-| `app/screen` | one frame: header, scrolled panels, strip, sweep | `gfx/*`, `panels/*`, `ui/*` |
-| `app/app` | lifecycle, fixed-rate scheduler, frame loop | everything below |
+| `panels/plugins` | the PLUGINS ledger, selection, orphans, and its geometry | `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
+| `ui/header` | wordmark, clock, tabs, summary, hazard band | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout`, `ui/tabbar` |
+| `ui/ui_state` | navigation state: tab, two scrolls, selection, modal | nothing |
+| `ui/tabbar` | tab labels and the HOME/PLUGINS summary | `core/plugins`, `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
+| `ui/modal` | confirmation and error panel | `gfx/*`, `ui/ui_state` |
+| `app/screen` | one frame: header, active tab, strip, modal, sweep | `gfx/*`, `panels/*`, `ui/*`, `ui/ui_state` |
+| `app/app` | lifecycle, fixed-rate scheduler, frame loop, input, UiState | everything below |
 | `main.c` | `vita2d_init()`, `app_run()`, `vita2d_fini()` | `app/app`, `vita2d.h` |
 
 `app/screen.c` exists so the host preview renders the shipped composition
 instead of a copy of it (D26). It makes no SDK call and reads no clock, which is
 what lets `tools/preview` link it unchanged.
+
+`core/plugins` and `core/plugin_editor` deliberately keep separate line models:
+the first only needs the activated set, the second needs offsets, line endings,
+reachability, and pending state. They share `core/tai_config.h` for the grammar,
+so a section name or plugin suffix cannot fork between HOME and PLUGINS.
 
 Outside the app: `tools/fake/` is the shared mutable port double, `tools/test/`
 links it against the real `core/` to assert the sampling policy, and
@@ -106,9 +118,30 @@ void platform_read_identity(PlatformIdentity *out);
 void platform_read_clock(PlatformClock *out);
 double platform_uptime_seconds(void);
 
-int platform_read_text_file(const char *path, char *buf, int cap);
 int platform_file_exists(const char *path);
+
+typedef enum {
+    PLATFORM_READ_ABSENT = 0,
+    PLATFORM_READ_OK,
+    PLATFORM_READ_TOO_LARGE,
+    PLATFORM_READ_UNREADABLE,
+} PlatformReadStatus;
+
+PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
+                                        int *out_len);
+int platform_write_config(const char *path, const char *text, int len);
+int platform_backup_rotate(const char *path);
+
+typedef void (*PlatformDirCallback)(const char *name, int is_dir, void *user);
+int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user);
 ```
+
+The config calls stay in the same adapter because every SDK file operation
+belongs to one module (D7). `platform_read_config` distinguishes absent, empty,
+too-large, and unreadable; `platform_write_config` writes a verified sibling and
+renames it; `platform_backup_rotate` owns the three-deep session snapshot; and
+`platform_list_dir` feeds the orphan section without exposing `SceUID` or
+`SceIoDirent`.
 
 Why a port rather than calling the SDK from `core/metrics`:
 
@@ -186,6 +219,7 @@ draw. Sampling is the only writer.
 | Its results are byte counts | `[C]` the unit is documented nowhere | `platform_psp2.c` |
 | Model codes `SCE_KERNEL_MODEL_VITA` / `SCE_KERNEL_MODEL_VITATV` | `[V]` `psp2common/kernel/sysmem.h` | `platform_psp2.c` |
 | `sceKernelGetModel()` cannot separate PCH-1000 from PCH-2000 | `[V]` one code for both | `platform_psp2.c` |
+| `sceIoRename` replaces an existing file | `[C]` not exercised by the fake; unverified on the target | `platform_psp2.c` |
 | No userland CPU-load API exists | `[V]` absent from `psp2/` | — |
 
 Two claims in this table were wrong when first written, both in the same
@@ -197,7 +231,8 @@ direction — marking as community knowledge something the SDK declares:
   `SCE_KERNEL_MODEL_VITATV` in `psp2common/kernel/sysmem.h`, reached through the
   `psp2/kernel/sysmem.h` include the adapter already had.
 
-Only the devctl byte unit remains genuinely `[C]`.
+Only two claims remain `[C]`: the devctl byte unit, and whether `sceIoRename`
+replaces an existing config on the target.
 
 If a `[C]` claim is corrected on hardware, only `platform_psp2.c` changes.
 
@@ -219,61 +254,63 @@ typedef struct {
 extern PanelSlot g_layout[];
 extern const int g_layout_count;
 
-/* Height of the scrolling canvas, derived from the lowest panel edge. */
+/* Height of the home canvas, derived from the lowest panel edge. */
 int layout_canvas_height(void);
 
-/* Largest valid scroll offset: the padded canvas minus one viewport. */
+/* Largest valid home scroll offset; zero when the two rows fit. */
 int layout_max_scroll(void);
-
-/* Resize the self-sizing PLUGINS region. */
-void layout_update(void);
 ```
 
-`app_run` walks `g_layout`, draws the chrome through `theme_panel()`, then calls
-the panel's `draw` with its rect. Panels own no state; if one ever needs state it
-goes in the struct, which is why `self` is passed.
+`app_run` owns one `UiState` and passes a read-only pointer to `screen_draw`.
+On HOME, `screen_draw` walks `g_layout`, draws the chrome through
+`theme_panel()`, then calls the panel's `draw` with its rect. On PLUGINS, it
+calls `plugins_screen_draw(ui)`, which owns its own canvas, selection, and
+clipping. Panels own no state; the only mutable state is `UiState` in `app/app`
+and the launch/edited config models in `core/plugins` and
+`core/plugin_editor`. Those two modules are the only writers of their globals:
+`core/plugins.c` owns `g_plugins`, and `core/plugin_editor.c` owns `g_editor`.
+No panel writes either.
 
-There is no elapsed-time argument. Nothing inside a panel animates: the traces
-are driven by the history they read, and the only time-based motion is the
-screen-wide sweep, which `app_run` owns. An unused parameter would be dead code
-(rule 9).
+There is no elapsed-time argument to a panel. Nothing inside a panel animates:
+the traces are driven by the history they read, and the only time-based motion
+is the screen-wide sweep, which `app_run` owns. An unused parameter would be
+dead code (rule 9).
 
 Geometry lives in the layout table, not in the panel. That is what allows an
 asymmetric screen (D17): a panel that computed its own rect from a grid index
 could not be 552 wide while its neighbour is 360.
 
-The table is mutable only for the plugin list: `layout_update()` finds the
-PLUGINS slot by panel identity and writes `plugins_panel_height()` into it, so
-the region grows with the number of loaded plugins and the number of non-empty
-groups (D47, D51). Each `PluginInfo` carries its `PluginSection`; a file listed
-under several targets keeps the most privileged one. The list holds up to
-`PLUGINS_MAX` entries and sets `PluginList.truncated` when a config exceeds
-that, which the panel states rather than hiding (D50). Every other rect is
-fixed at compile time. The canvas height and the scroll limit are derived from
-the table (`layout_canvas_height()`, `layout_max_scroll()`), so neither can
-drift from it (D49).
+The home table is fixed. It holds no plugin slot: the ledger moved to its own
+tab, and `plugins_screen_draw(ui)` owns that canvas, its row geometry, and its
+selection (D54, D57). Each `PluginInfo` carries its `PluginSection`; a file
+listed under several targets keeps the most privileged one. The launch list
+holds up to `PLUGINS_MAX` entries and sets `PluginList.truncated` when a config
+exceeds that (D50). The editable model in `core/plugin_editor` has its own
+ceilings and reports its own truncation. `layout_canvas_height()` and
+`layout_max_scroll()` are derived from the home table, so neither can drift from
+it (D49).
 
-`screen_draw()` skips any panel whose translated rect falls entirely outside the
-view band. The scissor would discard every pixel of it anyway, and the plugin
-list is taller than the viewport, so at most scroll positions one group of
-panels is off-screen. The plugin ledger applies the same test per row.
+`screen_draw()` skips any home panel whose translated rect falls entirely
+outside the view band, and `plugins_screen_draw()` applies the same test per
+group and row. The scissor would discard every pixel of them anyway.
 
 Panels do not know whether they are the hero or a satellite. The frame drawing
 that distinguishes them is `theme_panel()`'s job, selected by `PanelSlot.chrome`
 — so a panel can be promoted by editing the layout table alone.
 
-### Adding a panel
+### Adding a panel or a tab
 
-1. Create `src/panels/<name>.c`.
-2. Define `static void draw_<name>(const Panel *self, Rect r)`.
-3. Define `const Panel panel_<name> = { "TITLE", C_ACCENT, draw_<name> };`.
-4. Add `extern` for it, plus one `PanelSlot` entry with its rect, to `g_layout[]`
-   in `panels/registry.c`. A panel whose height depends on its content also needs
-   a case in `layout_update()`; the plugin list is the only one today (D47).
-5. Add the source file to `CMakeLists.txt` and to `tools/preview/run.sh`. Both
+1. For a HOME panel, create `src/panels/<name>.c`, define `Panel panel_<name>`,
+   and add one `PanelSlot` entry in `panels/registry.c`. There is no mutable
+   layout pass; the rect is fixed.
+2. For a tab, add a `UiTab` value, a tab label in `ui/tabbar.c`, and a draw
+   branch in `app/screen.c`. Keep the tab's state in `UiState`; do not add a
+   second global. Tabs that need their own canvas, like PLUGINS, own their
+   geometry and clipping in their panel module.
+3. Add the source file to `CMakeLists.txt` and to `tools/preview/run.sh`. Both
    list sources explicitly; the preview list is the one that gets forgotten, and
    forgetting it means the preview silently stops rendering the panel.
-6. If it needs a value that `Metrics` does not carry, add it to the port and to
+4. If it needs a value that `Metrics` does not carry, add it to the port and to
    `Metrics` — see below.
 
 Adding a panel means the layout must absorb it. Because the screen is
@@ -281,7 +318,7 @@ asymmetric, that is a deliberate edit to the rect table, not an automatic
 reflow — decide which region gives up space.
 
 Nothing else changes. The loop and the header are untouched; the two build
-lists from step 5 are the only mechanical edit.
+lists from step 3 are the only mechanical edit.
 
 ### Adding a metric
 

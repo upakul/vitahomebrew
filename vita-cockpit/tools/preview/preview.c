@@ -6,12 +6,15 @@
 #include <zlib.h>
 
 #include "app/screen.h"
+#include "ui/ui_state.h"
 #include "core/history.h"
 #include "core/metrics.h"
+#include "core/plugin_editor.h"
 #include "core/platform.h"
 #include "core/plugins.h"
 #include "gfx/layout.h"
 #include "panels/registry.h"
+#include "ui/modal.h"
 #include "fake_platform.h"
 
 /*
@@ -151,12 +154,13 @@ static int write_png(const char *path)
     return 1;
 }
 
-static int render(const char *dir, const char *name, float t, float scroll)
+static int render(const char *dir, const char *name, float t,
+                  const UiState *ui)
 {
     char path[1024];
 
     preview_clear();
-    screen_draw(t, scroll);
+    screen_draw(t, ui);
 
     int calls = preview_draw_calls();
 
@@ -176,38 +180,112 @@ static int render(const char *dir, const char *name, float t, float scroll)
     return 1;
 }
 
+static void reset_scene(UiState *ui)
+{
+    fake_reset();
+    metrics_init();
+    seed_trace();
+    editor_scan();
+    plugins_scan();
+
+    memset(ui, 0, sizeof(*ui));
+    ui->tab = UI_TAB_HOME;
+    ui->selection = editor_nearest_actionable(0);
+}
+
 int main(int argc, char **argv)
 {
     const char *dir = argc > 1 ? argv[1] : ".";
+    UiState ui;
 
     fake_reset();
     metrics_init();
+    editor_scan();
     plugins_scan();
-    layout_update();
     seed_trace();
-    if (!render(dir, "preview-healthy.png", 2.5f, 0.0f))
+    reset_scene(&ui);
+
+    if (!render(dir, "preview-healthy.png", 2.5f, &ui))
         return 1;
 
     /* Low battery while discharging: the real alert path, not a forced flag. */
     fake_set_power(14, 0);
     metrics_sample_slow();
-    if (!render(dir, "preview-alert.png", 4.0f, 0.0f))
+    if (!render(dir, "preview-alert.png", 4.0f, &ui))
         return 1;
 
-    /* Scrolled to the bottom: proves the canvas offset and the clipping. */
-    if (!render(dir, "preview-scrolled.png", 3.0f,
-                (float)layout_max_scroll()))
+    /* The editable ledger. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    ui.selection = editor_nearest_actionable(0);
+    if (!render(dir, "preview-plugins.png", 3.0f, &ui))
         return 1;
 
-    /* Nothing readable: every panel must show "--" and no trace. */
-    fake_set_memory_absent();
-    fake_set_power_absent();
-    fake_set_identity_absent();
-    fake_set_clock_absent();
-    for (int i = 0; i < PLATFORM_STORAGE_COUNT; ++i)
-        fake_set_storage_absent(i);
-    metrics_sample_slow();
-    if (!render(dir, "preview-absent.png", 5.5f, 0.0f))
+    /* Five groups on HOME: the summary must not cross the tab block. */
+    reset_scene(&ui);
+    fake_add_file("ur0:tai/config.txt",
+                  "# five groups\n"
+                  "*KERNEL\nur0:tai/kubridge.skprx\n"
+                  "*main\nur0:tai/henkaku.suprx\n"
+                  "*NPXS10015\nur0:tai/yamt.suprx\n"
+                  "*ALL\nur0:tai/vita3g-disable.suprx\n"
+                  "*PCSE00001\nur0:tai/extra.skprx\n");
+    editor_scan();
+    plugins_scan();
+    ui.tab = UI_TAB_HOME;
+    if (!render(dir, "preview-groups.png", 3.2f, &ui))
+        return 1;
+
+    /* A path with the same basename in both mounts must stay two rows. */
+    reset_scene(&ui);
+    fake_add_file("ur0:tai/config.txt",
+                  "*main\nur0:tai/kubridge.skprx\nux0:tai/kubridge.skprx\n");
+    fake_add_file("ux0:tai/kubridge.skprx", "");
+    editor_scan();
+    plugins_scan();
+    ui.tab = UI_TAB_PLUGINS;
+    ui.selection = editor_nearest_actionable(0);
+    if (!render(dir, "preview-duplicate.png", 3.5f, &ui))
+        return 1;
+
+    /* The warning confirmation, opened through the real policy. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    int warned = editor_row_for_path("ur0:tai/storagemgr.skprx");
+    const char *message = editor_confirm_text(warned, 0);
+    modal_open_confirm(&ui, warned, 0, message);
+    if (!render(dir, "preview-confirm.png", 4.0f, &ui))
+        return 1;
+
+    /* A failed write must keep the row and show the error. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    int row = editor_row_for_path("ur0:tai/kubridge.skprx");
+    fake_fail_write(1);
+    char err[64];
+    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    modal_open_error(&ui, err);
+    if (!render(dir, "preview-write-failure.png", 5.0f, &ui))
+        return 1;
+    fake_fail_write(0);
+
+    /* A failed session backup makes the manager read-only. */
+    reset_scene(&ui);
+    fake_fail_backup(1);
+    editor_scan();
+    plugins_scan();
+    ui.tab = UI_TAB_PLUGINS;
+    ui.selection = editor_nearest_actionable(0);
+    if (!render(dir, "preview-readonly.png", 5.5f, &ui))
+        return 1;
+    fake_fail_backup(0);
+
+    /* HOME after a toggle: counts stay at the launch set, pending appears. */
+    reset_scene(&ui);
+    row = editor_row_for_path("ur0:tai/kubridge.skprx");
+    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    ui.tab = UI_TAB_HOME;
+    if (!render(dir, "preview-home-pending.png", 6.0f, &ui))
         return 1;
 
     return 0;

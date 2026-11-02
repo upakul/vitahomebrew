@@ -71,7 +71,7 @@ flowchart TB
 - R1. The app exposes two tabs, HOME and PLUGINS, with HOME active at launch.
 - R2. L and R move to the previous and next tab, wrapping at the ends, on a button edge rather than every frame.
 - R3. The header and the FRAME strip stay pinned on both tabs, and the chrome row shows both tab names with the active one distinguished and the L/R affordance named.
-- R4. HOME shows a summary in the pinned chrome row with the total number of unique activated plugins and one count per non-empty load group, in the existing KERNEL, SYSTEM, SYSTEM APPS, ALL TITLES, TITLES order.
+- R4. HOME shows a summary in the pinned chrome row with the total number of unique activated plugins and one count per non-empty load group, in the existing KERNEL, SYSTEM, SYSTEM APPS, ALL TITLES, TITLES order; the row uses the short labels KERNEL, SYSTEM, APPS, ALL, and TITLES when the full names do not fit.
 - R5. The summary counts the launch config's activated set: a path is activated when at least one of its lines is enabled, its file exists, and its section is reached. A pending enable does not count until the reboot; a pending disable keeps counting until the reboot.
 - R6. When the active config differs from the launch snapshot, HOME shows how many rows have pending changes and states that they apply on the next boot.
 - R7. HOME and PLUGINS keep independent scroll positions and, on PLUGINS, independent selection for the life of the session.
@@ -79,7 +79,7 @@ flowchart TB
 **Plugin ledger**
 
 - R8. PLUGINS lists every plugin path named in the active config, whether active or commented out, as one row per unique path, grouped by the most privileged line that names it.
-- R9. A row shows the full path with its volume prefix, truncated in the middle when it does not fit, its catalog description or `N/A`, and exactly one status, evaluated in this order: BOOT when the path is loaded by `boot_config.txt` or is `taihen.skprx`, `henkaku.skprx`, or `yamt.skprx`; NOT REACHED when none of its lines is reached because of a `*!` halt; MISSING when no file exists at the path; PARTIAL when some lines are active and some commented; ENABLED when at least one line is active and the file exists; DISABLED when every line is commented. A row whose file is missing may be disabled but not enabled, except the `henkaku.suprx` restore. A change waiting for a reboot is marked separately from the status.
+- R9. A row shows its display name — the basename, or the full path when two rows share a basename — its catalog description or `N/A`, and exactly one status, evaluated in this order: BOOT when the path is loaded by `boot_config.txt` or is `taihen.skprx`, `henkaku.skprx`, or `yamt.skprx`; NOT REACHED when none of its lines is reached because of a `*!` halt; MISSING when no file exists at the path; PARTIAL when some lines are active and some commented; ENABLED when at least one line is active and the file exists; DISABLED when every line is commented. A row whose file is missing may be disabled but not enabled, except the `henkaku.suprx` restore. A change waiting for a reboot is marked separately from the status.
 - R10. A visible selection cursor moves with up and down, the view scrolls to keep it visible, and Cross acts on the selected row.
 
 **Toggle and safety**
@@ -110,7 +110,7 @@ flowchart TB
 **Effect and evidence**
 
 - R30. Host tests cover config resolution, line-preserving toggles, full-path identity, multi-section files, statuses, pending detection, lock and warn policy, boot-module exclusion, halt handling, truncation, three-deep backup rotation, and write failure.
-- R31. The host preview renders eight states: HOME, HOME with pending changes, HOME with five groups, PLUGINS, PLUGINS with duplicate basenames, a warned confirmation, a write failure, and a read-only config state.
+- R31. The host preview renders nine states: HOME, HOME alert, HOME with pending changes, HOME with five groups, PLUGINS, PLUGINS with duplicate basenames, a warned confirmation, a write failure, and a read-only config state.
 - R32. The project docs are updated in the same change: `PROJECT.md` scope and non-goals, `DESIGN.md` tabs and summary, `ARCHITECTURE.md` new seams and writer rules, `DECISIONS.md` with a new tab-aware state decision and a revisit of D16, the README controls table, `PROJECTS.md`, and the wiki.
 - R33. Before replacing the active config, the app verifies that the active config's pre-session backup exists and matches the bytes read at session start; a missing or mismatched backup aborts the write and leaves the original untouched.
 - R34. At session start, before the config is read or any write, the app rotates three verified backups for every existing file in its config set: `<path>.bak` holds the pre-session bytes, `<path>.1.bak` the previous session, and `<path>.2.bak` the session before that. If the active config's backup cannot be written or verified, the manager is read-only for that session and names the file; a failure on another file in the set is a warning.
@@ -241,7 +241,7 @@ flowchart TB
 - Every successful toggle leaves the verified three-deep backup set in place; a failed session backup makes the manager read-only before any edit.
 - No write occurs without an explicit Cross on a row, and a failed write never appears as a successful toggle.
 - With the ledger gone, HOME fits the viewport without a scrollbar at its default state.
-- Host tests pass, the preview renders all eight states, and the busiest tab stays under 5,500 draw calls.
+- Host tests pass, the preview renders all nine states, and the busiest tab stays under 5,500 draw calls.
 
 ### Scope Boundaries
 
@@ -403,9 +403,9 @@ Confirmation copy, written for the font's glyph set:
 | `yamt.suprx` | YAMT STORAGE MENU DISAPPEARS | YAMT STORAGE MENU RETURNS |
 | `yamt_helper.skprx` | YAMT REMOUNT COMMANDS FAIL | YAMT REMOUNT COMMANDS RETURN |
 | `reVitaMotion.suprx` | REVITA GYRO REMAPPING STOPS | REVITA GYRO REMAPPING RETURNS |
-| `storagemgr.skprx` | UX0 MAY NOT MOUNT NEXT BOOT. RECOVER WITH OFFICIAL CARD OR PC | THE STORAGE DRIVER LOADS AGAIN |
-| `usbmc.skprx` | UX0 MAY NOT MOUNT NEXT BOOT. RECOVER WITH OFFICIAL CARD OR PC | THE STORAGE DRIVER LOADS AGAIN |
-| `usbmcm.skprx` | UX0 MAY NOT MOUNT NEXT BOOT. RECOVER WITH OFFICIAL CARD OR PC | THE STORAGE DRIVER LOADS AGAIN |
+| `storagemgr.skprx` | UX0 MAY NOT MOUNT NEXT BOOT. RECOVER WITH CARD OR PC | THE STORAGE DRIVER LOADS AGAIN |
+| `usbmc.skprx` | UX0 MAY NOT MOUNT NEXT BOOT. RECOVER WITH CARD OR PC | THE STORAGE DRIVER LOADS AGAIN |
+| `usbmcm.skprx` | UX0 MAY NOT MOUNT NEXT BOOT. RECOVER WITH CARD OR PC | THE STORAGE DRIVER LOADS AGAIN |
 
 Locked-row copy: `HENKAKU.SUPRX IS THE HENKAKU SETTINGS AND RELOAD UI. IT CANNOT BE DISABLED HERE.`
 - KTD8. **The tab chrome and summary share the header, not a new band.** `ui/tabbar` draws the two tab labels in the header row between the wordmark and the clock, at y 16-44, in label scale with a 2 px active underline. On HOME it draws the activated total and group counts on the hazard line at y 48-60 in micro scale; a fault replaces the summary with the hazard band, and the tabs remain. No viewport height changes.
@@ -496,7 +496,7 @@ U2 provides the read outcomes and the write path. U1 owns config resolution and 
   - Add a transactional write call that removes a stale `.new`, writes a sibling with create-and-exclusive, reads it back, compares the bytes, confirms the active `.bak` matches the session-start bytes, then renames the sibling over the original.
   - Add a directory-listing call that yields names and file sizes without exposing `SceUID` or `SceIoDirent` through the port.
   - Keep every SDK call inside `platform_psp2.c`.
-- **Patterns to follow:** `platform_read_text_file` and `platform_file_exists` in `vita-cockpit/src/platform/platform_psp2.c`.
+- **Patterns to follow:** `platform_read_config` and `platform_file_exists` in `vita-cockpit/src/platform/platform_psp2.c`.
 - **Test scenarios:**
   - Absent file reports absent; empty file reports empty; readable file reports ok with bytes.
   - A file at the ceiling reports ok; one byte over reports too-large.
@@ -648,13 +648,13 @@ U2 provides the read outcomes and the write path. U1 owns config resolution and 
 - **Dependencies:** U1-U7.
 - **Files:** `vita-cockpit/tools/preview/preview.c`, `vita-cockpit/tools/preview/run.sh`, `vita-cockpit/tools/test/run.sh`, `vita-cockpit/CMakeLists.txt`, `vita-cockpit/BUILD_NUMBER`, `vita-cockpit/README.md`, `vita-cockpit/docs/PROJECT.md`, `vita-cockpit/docs/DESIGN.md`, `vita-cockpit/docs/ARCHITECTURE.md`, `vita-cockpit/docs/DECISIONS.md`, `README.md`, `PROJECTS.md`, `agent-wiki/12-projects.md`, `agent-wiki/13-fact-check.md`.
 - **Approach:**
-  - Extend the preview to render eight scenes: HOME, HOME pending, HOME with five groups, PLUGINS, PLUGINS with duplicate basenames, warned confirmation, write failure, and read-only config.
+  - Extend the preview to render nine scenes: HOME, HOME alert, HOME pending, HOME with five groups, PLUGINS, PLUGINS with duplicate basenames, warned confirmation, write failure, and read-only config.
   - Run the full host suite, the preview, the doc-link check, and the build.
   - Record new decisions: tab-aware UI state, byte-preserving config model, transactional write, three-deep session backup, lock/warn policy, and the activated summary. Revisit D16's single-writer assumption with the new state owner.
   - Update `PROJECTS.md` to `built` until the console check passes, with the VPK name and test counts.
 - **Patterns to follow:** `vita-cockpit/tools/preview/preview.c` scene list, `vita-cockpit/docs/DECISIONS.md` entry format, `PROJECTS.md` row format.
 - **Test scenarios:**
-  - The preview produces eight PNGs and each one is non-empty.
+  - The preview produces nine PNGs and each one is non-empty.
   - The draw-call count for every scene stays under 5,500.
   - The host suite passes with no failures.
   - The doc-link check reports no issues and no odd code fences.
@@ -668,7 +668,7 @@ U2 provides the read outcomes and the write path. U1 owns config resolution and 
 | Gate | Command | Passing signal |
 |---|---|---|
 | Host tests | `cd vita-cockpit && ./tools/test/run.sh` | All checks pass, including byte-preservation and failure injection |
-| Preview | `cd vita-cockpit && ./tools/preview/run.sh` | Eight PNGs; every scene under 5,500 draw calls |
+| Preview | `cd vita-cockpit && ./tools/preview/run.sh` | Nine PNGs; every scene under 5,500 draw calls |
 | Build | `cd vita-cockpit && ./build.sh` | Exit 0, no warnings, one `cockpit-v<version>-b<build>.vpk` |
 | Doc links | The workspace Python check in `AGENTS.md` | `issues: none` |
 | Config bytes | Host test comparing original and toggled files | Only the selected path's comment markers differ |
@@ -681,7 +681,7 @@ The hardware check is the only proof for rename-overwrite behaviour, input feel,
 
 - R1-R32 are each covered by a unit, a test, or a documented check.
 - Every feature-bearing unit has host test scenarios, and the suite passes with zero failures.
-- The preview renders all eight states, and the busiest scene stays under 5,500 draw calls.
+- The preview renders all nine states, and the busiest scene stays under 5,500 draw calls.
 - The build produces one uniquely named VPK with zero warnings; no new library is linked unless the source calls it.
 - The config model preserves every byte outside the toggled lines, including comments, blank lines, section headers, and CRLF endings.
 - Every successful write verifies the active config's pre-session backup, and a failed session rotation makes the manager read-only before any edit.

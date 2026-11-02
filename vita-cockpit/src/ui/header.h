@@ -1,7 +1,9 @@
 #ifndef COCKPIT_UI_HEADER_H
 #define COCKPIT_UI_HEADER_H
 
-/* Wordmark, wall clock, and the hazard band. Drawn before the panels. */
-void header_draw(void);
+#include "ui/ui_state.h"
+
+/* Wordmark, wall clock, tabs, summary, and the hazard band. */
+void header_draw(const UiState *ui);
 
 #endif

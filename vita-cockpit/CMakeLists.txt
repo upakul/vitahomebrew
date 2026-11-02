@@ -54,7 +54,9 @@ add_executable(cockpit
   src/app/app.c
   src/app/screen.c
   src/core/history.c
+  src/core/input.c
   src/core/metrics.c
+  src/core/plugin_editor.c
   src/core/plugins.c
   src/gfx/draw.c
   src/gfx/font.c
@@ -68,6 +70,8 @@ add_executable(cockpit
   src/panels/system.c
   src/platform/platform_psp2.c
   src/ui/header.c
+  src/ui/modal.c
+  src/ui/tabbar.c
 )
 
 target_include_directories(cockpit PRIVATE src)

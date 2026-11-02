@@ -75,15 +75,19 @@ untested.
 
 | Check | Result |
 |---|---|
-| App build | Success, 89 KB VPK (b13) |
+| App build | Success, 108 KB VPK (b28) |
 | Auth ID | `0x2F00000000000001` (UNSAFE default, D42); `0x2F00000000000002` with `--safe` |
 | Imports | `ScePower`, `SceSysmem`, `SceIofilemgr`, `SceKernelModulemgr`, `SceRtc`, `SceCtrl`, `SceLibKernel`; `SceDisplay`, `SceGxm`, `SceSysmodule`, `SceAppMgr`, `SceCommonDialog` via libvita2d |
-| Host tests | 87 checks, 0 failures (`tools/test/run.sh`) |
+| Host tests | 191 checks, 0 failures (`tools/test/run.sh`) |
 | Plugin list | `[V]` a real 19-entry config parses 19/19 and groups as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; tests cover comments, long names, section mapping, priority merge, the 64-entry ceiling and its notice |
-| Host preview render | Four states rendered through the shipped composition (`tools/preview/run.sh`) |
-| Header and band | `[V]` host preview: no header hairline; band 64..472 with a 12 px inset, content at 76; both panel rows fit at scroll 0 (D53) |
+| Plugin editor | `[V]` host tests cover ux0 precedence, empty config, full-path duplicate rows, `*!` halts, lock and warn decisions, the three-step partial cycle, per-line pending, and the toggle round trip |
+| Backups | `[V]` host tests cover `.bak`/`.1.bak`/`.2.bak` rotation and a failed active backup making the manager read-only |
+| Config write | `[C]` the adapter's `.new` write, read-back, and rename-over are implemented and build; host tests exercise the fake's in-place overwrite, not the adapter transaction, and `sceIoRename` replacement is unverified on the target |
+| Host preview render | Nine states rendered through the shipped composition (`tools/preview/run.sh`), busiest 5,032 draw calls |
+| Tabs and summary | `[V]` host preview: HOME/PLUGINS tabs and the summary share the 64 px header; HOME keeps both panel rows at scroll 0 and has no scrollbar (D60) |
+| Pending baseline | `[C]` session-scoped: relaunching COCKPIT before the reboot re-reads the edited file as the new baseline (D59) |
 | Plugin descriptions | 155 rows: every AutoPlugin2 Vita catalog path plus iTLS, libshacccg, YAMT and HENkaku; 10 rows marked `[C]` for missing or corrected text |
-| Runtime | `[V]` 2026-11-02: all panels render on the 3.65 console |
+| Runtime | `[V]` 2026-11-02 at b13: all panels render on the 3.65 console; b28 is built and host-tested, pending the tabbed check |
 | `SceIoDevInfo` | Uses the SDK type, 24 bytes, not the 16-byte community struct |
 | Model string | Reports `PSVITA`, because `sceKernelGetModel()` cannot tell PCH-1000 from PCH-2000 |
 

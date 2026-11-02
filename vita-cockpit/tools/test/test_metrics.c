@@ -275,6 +275,20 @@ static void test_plugins_parse(void)
     memset(&empty, 0, sizeof(empty));
     plugins_parse("*KERNEL\n*main\n", &empty);
     CHECK(empty.count == 0);
+
+    /* `*!Section` halts parsing; later paths are not reached. */
+    PluginList halt;
+    memset(&halt, 0, sizeof(halt));
+    plugins_parse("*KERNEL\nur0:tai/a.skprx\n*!ALL\nur0:tai/b.skprx\n",
+                  &halt);
+    CHECK(halt.count == 1);
+    CHECK(halt.config_invalid == 0);
+
+    /* A path before the first section makes the whole config invalid. */
+    PluginList invalid;
+    memset(&invalid, 0, sizeof(invalid));
+    plugins_parse("ur0:tai/a.skprx\n*KERNEL\nur0:tai/b.skprx\n", &invalid);
+    CHECK(invalid.config_invalid == 1);
 }
 
 /* The section a named plugin was filed under, or -1 when it is absent. */
@@ -304,7 +318,7 @@ static void test_plugins_sections(void)
                               "ur0:tai/shell.suprx\n"
                               "*NPXS10016\n"
                               "ur0:tai/widget.suprx\n"
-                              "*all\n"
+                              "*ALL\n"
                               "ur0:tai/all.suprx\n"
                               "*PCSE00001\n"
                               "ur0:tai/game.suprx\n";

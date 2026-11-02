@@ -18,7 +18,7 @@ layout and type are the shipped ones.*
 
 | Project | Status | What it is |
 |---|---|---|
-| [`vita-cockpit`](vita-cockpit/) | `verified` | A live system dashboard in Cyberpunk 2077 HUD style: clocks, memory, storage, power, identity, frame health, and the taiHEN plugins that are loaded. |
+| [`vita-cockpit`](vita-cockpit/) | `built` | A two-tab system dashboard in Cyberpunk 2077 HUD style: clocks, memory, storage, power, identity, frame health, and a plugin manager that can enable or disable taiHEN plugins. |
 | [`vita-cap-test`](vita-cap-test/) | `built` | A capability test for file I/O, PCM audio, WiFi/DNS/HTTP, and the bundled libraries. |
 | [`vita-kernel-demo`](vita-kernel-demo/) | `built` | A userland app that loads a real taiHEN `.skprx` on demand, hooks `ksceIoOpen`, and reads the hook state through a generated syscall stub. |
 
@@ -55,7 +55,7 @@ cd vita-kernel-demo && ./build.sh   # app + kernel plugin
 Each project emits one uniquely named artifact in its `build/` directory:
 
 ```text
-build/cockpit-v01.00-b13.vpk
+build/cockpit-v01.00-b28.vpk
 build/cap-test-v01.00-b4.vpk
 build/kernel-demo-v01.00-b5.vpk
 ```
@@ -95,34 +95,33 @@ STORAGE 552×172              │ SYSTEM 360×172
 UX0            12.4/29.5 GB  │ FW            3.65
 UMA0                  N/A    │ RUN     00:14:22
 ─────────────────────────────┴────────────────────────────
-ACTIVATED PLUGINS
-KERNEL
-KUBRIDGE.SKPRX ────────────────────────────── ▪
-kernel-user bridge module
-SYSTEM
-HENKAKU.SUPRX ─────────────────────────────── ▪
-settings menu, version and update spoof
-──────────────────────────────────────────────────────────
 FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼───
 ```
 
+The header carries `HOME` and `PLUGINS` tabs and a one-line summary of the
+activated plugins. Press L/R to switch; the dashboard stays one screen.
+
 | Input | Action |
 |---|---|
-| D-pad up/down, left stick | scroll the panel area |
+| L / R | switch HOME / PLUGINS |
+| D-pad up/down, left stick | scroll HOME, or move the PLUGINS selection |
+| Cross | toggle the selected plugin, or confirm a modal |
+| Circle | cancel a modal |
 | PS button | leave the app (system) |
 
-The panel area scrolls because the content does not fit one screen; the header
-and the `FRAME` strip stay pinned. The plugin ledger reads every activated entry
-in `config.txt`, groups rows by load target — KERNEL, SYSTEM, SYSTEM APPS, ALL
-TITLES, TITLES — and grows with the list. Descriptions cover 155 known taiHEN
-plugins; a plugin outside the catalog still gets a row and says `N/A`, and a
-commented-out entry is not shown.
+HOME replaces the old ledger with the summary; the full ledger is its own
+screen. PLUGINS reads every path in the active `config.txt` — active or
+commented — groups it by load target, and toggles a plugin by editing its line.
+`henkaku.suprx` and the three boot modules are locked; the DRM, storage, and
+other load-bearing plugins warn before a change. Each session rotates three
+backups (`.bak`, `.1.bak`, `.2.bak`) before reading the config. Descriptions
+cover 155 known taiHEN plugins; an entry outside the catalog says `N/A`.
 
 <p align="center">
-  <img src="vita-cockpit/docs/preview-scrolled.png" alt="COCKPIT scrolled to the plugin ledger" width="640">
+  <img src="vita-cockpit/docs/preview-plugins.png" alt="COCKPIT plugin manager" width="640">
 </p>
 
-*Scrolled to the plugin ledger. Same host preview, same synthetic values.*
+*The PLUGINS tab in the host preview. Same synthetic values.*
 
 A number the platform cannot report renders `--`; it is never guessed or
 substituted with zero. Storage uses `N/A` for an unmounted volume and `ERR xx`
@@ -132,15 +131,15 @@ for a refused read.
 
 ```sh
 cd vita-cockpit
-./tools/test/run.sh      # 87 host checks against a fake port
-./tools/preview/run.sh   # four 960×544 PNGs in build/preview/
+./tools/test/run.sh      # 191 host checks against a fake port
+./tools/preview/run.sh   # nine 960×544 PNGs in build/preview/
 ```
 
 The tests link the real sampling policy against a fake platform and assert the
 alert boundary, failed-read handling, unit conversions, history ring, frame
-floor, and the plugin table. The preview renders the shipped composition through
-a software vita2d shim, so a PNG proves the policy ran. Neither replaces a
-hardware run.
+floor, and the plugin table, the config editor, the backup rotation, and the
+input reducer. The preview renders the shipped composition through a software
+vita2d shim, so a PNG proves the policy ran. Neither replaces a hardware run.
 
 ## Repository layout
 
