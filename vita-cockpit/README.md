@@ -10,7 +10,6 @@ change written to the active config and applied on the next boot.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ COCKPIT      HOME  PLUGINS  L/R                  14:22:07    │
-│              7 PLUGINS ONLINE  KERNEL 3  SYSTEM 2  APPS 1    │
 ├──────────────────────────────────────────────────────────────┤
 │ CORE 552×210                 │ POWER 360×210                  │
 │ ARM  333  GPU  166  BUS  166 │                                │
@@ -25,6 +24,10 @@ change written to the active config and applied on the next boot.
 │ UMA0                   N/A   │ MODEL            PSVITA        │
 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░  │                                │
 ├──────────────────────────────────────────────────────────────┤
+│ PLUGINS 924×140   (below both columns, on the canvas)        │
+│ 7  PLUGINS ONLINE                                            │
+│    KERNEL 3  SYSTEM 2  SYSTEM APPS 1                         │
+├──────────────────────────────────────────────────────────────┤
 │ FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼──                   │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -34,9 +37,14 @@ change written to the active config and applied on the next boot.
 - **Auth:** UNSAFE eboot by default (`0x2F00000000000001`), because `uma0:`
   capacity needs `sceIoDevctl` (D42). `./build.sh --safe` builds the
   restricted `0x2F00000000000002` variant.
-- **Status:** builds and packages (112.1 KB VPK, b35), runs on the 3.65 console at
-  b13; 316 host checks and 13 previews pass. The fixed tabbed build is pending
+- **Status:** builds and packages (111.1 KB VPK, b38), runs on the 3.65 console at
+  b13; 316 host checks and 15 previews pass. The fixed tabbed build is pending
   the on-console check.
+
+The HOME `PLUGINS` block sits below STORAGE and SYSTEM, spanning both columns. It
+shows the activated count at primary scale, `PLUGINS ONLINE`, the non-empty group
+counts, and any pending or config warning. It reports the launch set and is
+read-only; scroll HOME down to it. Every edit happens on the PLUGINS tab.
 
 The plugin screen resolves the active config the way taiHEN does — `ux0:` first,
 `ur0:` fallback — and names any ignored file. It lists every path in that config,
@@ -73,7 +81,7 @@ stage that was refused: `OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`,
 ./build.sh --safe     # restricted eboot, marked -safe in the filename
 ```
 
-Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b35.vpk`.
+Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b38.vpk`.
 The build number counts distinct builds and is kept in `BUILD_NUMBER`: unchanged
 sources reuse the number, and only the newest VPK is kept (D46). Upload it with:
 
@@ -112,8 +120,9 @@ reducer. Exits non-zero on failure. 316 checks.
 ```
 
 Renders the shipped composition (`app/screen.c`) through a software vita2d shim
-and the same fake platform, writing 13 scenes under `build/preview/`:
-`preview-healthy.png`, `preview-alert.png`, `preview-plugins.png`,
+and the same fake platform, writing 15 scenes under `build/preview/`:
+`preview-healthy.png`, `preview-alert.png`, `preview-home-plugins.png`,
+`preview-home-plugins-empty.png`, `preview-plugins.png`,
 `preview-plugins-bottom.png`, `preview-warning.png`, `preview-missing.png`,
 `preview-backup-warning.png`, `preview-groups.png`, `preview-duplicate.png`,
 `preview-confirm.png`, `preview-write-failure.png`, `preview-readonly.png`, and
@@ -130,9 +139,9 @@ src/
   app/                lifecycle, frame loop, and screen_draw
   core/               sampling policy, history, plugin config and catalog, the port
   gfx/                vita2d adapter: primitives, font, theme, layout
-  panels/             one file per panel, the plugin ledger, and the layout registry
+  panels/             one file per panel, the plugin ledger, the HOME summary, and the layout registry
   platform/           the SDK adapter, the only file that samples the device
-  ui/                 screen chrome: header, tabs and summary, modal
+  ui/                 screen chrome: header, tabs and the PLUGINS header line, modal
 tools/
   fake/               shared mutable port double
   test/               host tests for the sampling policy

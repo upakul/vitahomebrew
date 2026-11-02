@@ -21,11 +21,12 @@ platform cannot report is omitted rather than approximated.
 
 | Region | Contents |
 |---|---|
-| HOME header | wordmark, clock, HOME/PLUGINS tabs, `N PLUGINS ONLINE` summary with group counts |
+| HOME header | wordmark, clock, HOME/PLUGINS tabs |
 | CORE | ARM, GPU, and bus clock; free user / CDRAM / physical-contiguous pools; 20 s memory trace |
 | STORAGE | `ux0:`, `uma0:` used and total, with the unit chosen from each volume's size (GB or MB), segmented meters |
 | POWER | battery percent, charging state, temperature, voltage, cycles, health |
 | SYSTEM | firmware string, app run time, device model |
+| PLUGINS summary | a full-width block below both columns: activated count, group counts, pending and config warnings |
 | PLUGINS tab | the full config ledger, grouped by load target, with status badges, greyed/active controls, lock/warn confirmations, pending state, read-only unlisted files, and the two config snapshots |
 | FRAME | measured FPS, frame time, 20 s trace |
 
@@ -74,12 +75,14 @@ run `send.sh` with the address it shows.
 
 Scroll the panel area with the d-pad or the left stick. The header and the
 FRAME strip stay pinned; a thin bar on the right shows position. Press L or R to
-switch between HOME and PLUGINS. On PLUGINS, up/down moves the selection, Cross
-toggles the selected plugin, and Circle cancels a confirmation. At the last row,
-another down press scrolls to the installed-but-unlisted files; Cross on a
-greyed control explains why it cannot act instead of writing. A change is
-written immediately and applies on the next boot. If a write fails, the message
-is `WRITE FAILED` followed by the stage (`OPEN`, `DATA`, `VERIFY`, `MOVE`,
+switch between HOME and PLUGINS. The HOME `PLUGINS` block is read-only: it counts
+the launch set and shows pending edits, and it sits below the fold, so scroll
+down to reach it. On PLUGINS, up/down moves the selection, Cross toggles the
+selected plugin, and Circle cancels a confirmation. At the last row, another
+down press scrolls to the installed-but-unlisted files; Cross on a greyed
+control explains why it cannot act instead of writing. A change is written
+immediately and applies on the next boot. If a write fails, the message is
+`WRITE FAILED` followed by the stage (`OPEN`, `DATA`, `VERIFY`, `MOVE`,
 `RENAME`, `READBACK`, or `RESTORE`).
 
 Install by selecting the VPK in `ux0:data` inside VitaShell and pressing Cross.
@@ -95,7 +98,7 @@ makes "which build is on the Vita?" answerable.
 The artifact is named:
 
 ```
-build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b35.vpk
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b38.vpk
 ```
 
 | Part | Source | Changes |
@@ -134,7 +137,7 @@ community knowledge.
 
 | Area | Status |
 |---|---|
-| Builds and packages | `[V]` clean build, 112.1 KB VPK (b35), no warnings |
+| Builds and packages | `[V]` clean build, 111.1 KB VPK (b38), no warnings |
 | Host tests (sampling, plugin model, snapshots, write transaction, input) | `[V]` `tools/test/run.sh`, 316 checks |
 | Plugin list (`ux0:` first, `ur0:` fallback) | `[V]` host harness keeps a 19-entry real config in full and groups it as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; host tests cover BOM, commented entries, long names, section mapping, priority merge, the 64-entry ceiling, full-path duplicate rows, `*!` halts, lock/warn policy, the two snapshots, and the exact `#` edit |
 | Clocks, memory, power APIs declared in SDK | `[V]` header inspection |
@@ -143,8 +146,8 @@ community knowledge.
 | `sceIoDevctl("ux0:", 0x3001, …)` command | `[V]` `psp2/io/devctl.h` demonstrates it verbatim |
 | Storage result unit (bytes) | `[C]` — the one claim still unconfirmed |
 | Device model codes | `[V]` `psp2common/kernel/sysmem.h` |
-| Screen layout and typography | `[V]` host preview render, 13 states; header summary, badges, controls, modal, and CORE/POWER outlines at scroll 0 (D53, D54, D63, D66) |
-| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the fixed tabbed build b35 is not on hardware yet |
+| Screen layout and typography | `[V]` host preview render, 15 states; the HOME summary block, badges, controls, modal, and CORE/POWER outlines (D53, D54, D66, D67) |
+| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the fixed tabbed build b38 is not on hardware yet |
 | Config write path | `[C]` the adapter's rename-away swap and live read-back are implemented and build; host tests exercise the same transaction in the fake, not the SDK calls, and the target's rename semantics are unverified. A failure names the stage (`OPEN`, `DATA`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, `RESTORE`). |
 | STORAGE reads | `[V]` both volumes report on hardware under `UNSAFE` (D42); `ux0:` also works on the safe build via `sceAppMgrGetDevInfo` (D38) |
 | Behaviour not listed above | unverified |
@@ -185,7 +188,7 @@ Panels degrade, they do not crash.
 
 | Step | Adds | Needs |
 |---|---|---|
-| v1 | the dashboard and the plugin manager | b35 builds and is host-tested; the fixed tabbed UI is pending the console check |
+| v1 | the dashboard and the plugin manager | b38 builds and is host-tested; the fixed tabbed UI is pending the console check |
 | v2 | app inventory, per-title storage | `sceAppMgrGetAppInfo`, directory walk of `ux0:app` |
 | v3 | network status | `SceNetCtl` |
 | v4 | theme switching, a second visual language | a theme abstraction in `gfx/theme` |

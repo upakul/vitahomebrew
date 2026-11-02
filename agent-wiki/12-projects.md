@@ -207,12 +207,17 @@ from the console. Cyberpunk 2077 HUD as the visual reference.
 
 ### Status
 
-**Hardware-verified at b13; b35 is built and host-tested, pending the fixed
+**Hardware-verified at b13; b38 is built and host-tested, pending the fixed
 tabbed check.** Runs on the 3.65 console: every panel renders, and `ux0:` reads
 `17.7/119.3 GB` through `sceAppMgrGetDevInfo`. The shipped build is `UNSAFE` by
 default (D42) because `uma0:` capacity needs `sceIoDevctl`, which the safe authid
 refuses; `./build.sh --safe` still builds the restricted variant. `uma0:` reads
 `--` when no second volume is mounted.
+
+HOME carries a read-only `PLUGINS` summary block below STORAGE and SYSTEM: the
+activated count at primary scale, `PLUGINS ONLINE`, the non-empty group counts,
+and pending/config-warning tokens (D67). It reports the launch set, sits below
+the fold, and scrolls with HOME; every edit is on the PLUGINS tab.
 
 PLUGINS resolves the active config the way taiHEN does (D55), lists every path
 active or commented, and groups by load target — KERNEL, SYSTEM, SYSTEM APPS,
@@ -250,8 +255,8 @@ guesswork:
 | `src/core/` | `platform.h` (the port), `metrics` (policy), `history` (ring), `plugins` (launch set + catalog), `tai_config.h` (shared grammar), `plugin_editor` (line model, two snapshots, toggle), `input` (edges and repeats) |
 | `src/platform/` | `platform_psp2.c`, the only SDK sampling and file adapter |
 | `src/gfx/` | `draw` (vita2d adapter), `font` (5×7 face), `theme` (palette, chrome, meters, traces) |
-| `src/panels/` | `core`, `storage`, `power`, `system`, `plugins` (the ledger), `frame`, plus `registry.c` with the home layout table |
-| `src/ui/` | `header`, `tabbar` (tabs and summary), `modal` |
+| `src/panels/` | `core`, `storage`, `power`, `system`, `plugins` (the ledger), `plugins_summary` (the HOME block), `frame`, plus `registry.c` with the home layout table |
+| `src/ui/` | `header`, `tabbar` (tabs and the PLUGINS header line), `modal` |
 | `src/app/` | lifecycle, frame loop, `UiState`, and `screen_draw` |
 | `tools/fake/` | shared mutable port double |
 | `tools/test/` | host tests for the sampling policy, config model, snapshots, write transaction, and input |
@@ -264,7 +269,7 @@ cd vita-cockpit
 ./build.sh
 ```
 
-Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b35.vpk`).
+Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b38.vpk`).
 `build.sh` counts distinct builds in `BUILD_NUMBER`: unchanged sources reuse the
 number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-ip>`.
 
@@ -272,7 +277,7 @@ number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-i
 
 ```sh
 ./tools/test/run.sh      # 316 assertions over the sampling policy, plugin editor, snapshots, write transaction, and input
-./tools/preview/run.sh   # 13 PNG states, with a 6,500 draw-call budget
+./tools/preview/run.sh   # 15 PNG states, with a 6,500 draw-call budget
 ```
 
 ### Preview without hardware
@@ -282,7 +287,7 @@ cd vita-cockpit
 ./tools/preview/run.sh
 ```
 
-Writes 13 `build/preview/preview-*.png` states (the authoritative list is in `vita-cockpit/README.md`). It links the shipped
+Writes 15 `build/preview/preview-*.png` states (the authoritative list is in `vita-cockpit/README.md`). It links the shipped
 composition (`app/screen.c`), the real `theme`, `font`, `panels`, `header`, and
 `core`, a software vita2d shim, and the shared fake platform in `tools/fake/`.
 Each scene is produced by driving the fake port through `metrics_sample_slow()`,

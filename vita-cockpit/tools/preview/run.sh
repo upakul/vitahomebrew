@@ -34,6 +34,7 @@ SRC="$ROOT/src"
   "$SRC/panels/core.c" \
   "$SRC/panels/frame.c" \
   "$SRC/panels/plugins.c" \
+  "$SRC/panels/plugins_summary.c" \
   "$SRC/panels/power.c" \
   "$SRC/panels/registry.c" \
   "$SRC/panels/storage.c" \

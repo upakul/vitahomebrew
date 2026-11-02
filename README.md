@@ -55,7 +55,7 @@ cd vita-kernel-demo && ./build.sh   # app + kernel plugin
 Each project emits one uniquely named artifact in its `build/` directory:
 
 ```text
-build/cockpit-v01.00-b35.vpk
+build/cockpit-v01.00-b38.vpk
 build/cap-test-v01.00-b4.vpk
 build/kernel-demo-v01.00-b5.vpk
 ```
@@ -95,12 +95,23 @@ STORAGE 552×172              │ SYSTEM 360×172
 UX0            12.4/29.5 GB  │ FW            3.65
 UMA0                  N/A    │ RUN     00:14:22
 ─────────────────────────────┴────────────────────────────
+PLUGINS 924×140   (below both columns, on the canvas)
+7  PLUGINS ONLINE
+   KERNEL 3  SYSTEM 2  SYSTEM APPS 1
+──────────────────────────────────────────────────────────
 FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼───
 ```
 
-The header carries `HOME` and `PLUGINS` tabs and a `N PLUGINS ONLINE` summary
-with the non-empty group counts. Press L/R to switch; the dashboard stays one
-screen.
+The header carries `HOME` and `PLUGINS` tabs. Press L/R to switch. HOME carries a
+full-width `PLUGINS` block below STORAGE and SYSTEM with the activated count,
+`PLUGINS ONLINE`, the non-empty group counts, and pending/warning tokens; it is
+read-only and sits below the fold, so scroll HOME down to it.
+
+<p align="center">
+  <img src="vita-cockpit/docs/preview-home-plugins.png" alt="COCKPIT HOME plugin summary block" width="640">
+</p>
+
+*The HOME `PLUGINS` block, scrolled into view. Same synthetic values.*
 
 | Input | Action |
 |---|---|
@@ -110,7 +121,7 @@ screen.
 | Circle | cancel a modal |
 | PS button | leave the app (system) |
 
-HOME keeps the dashboard and replaces the old ledger with the summary; the full
+HOME keeps the dashboard and ends with the read-only summary block; the full
 ledger is its own screen. PLUGINS reads every path in the active `config.txt` —
 active or commented — groups it by load target, and toggles a plugin by editing
 its line. Every row shows a status badge (`ACTIVATED`, `DISABLED`, `MISSING`,
@@ -137,7 +148,7 @@ for a refused read.
 ```sh
 cd vita-cockpit
 ./tools/test/run.sh      # 316 host checks against a fake port
-./tools/preview/run.sh   # 13 960×544 PNGs in build/preview/
+./tools/preview/run.sh   # 15 960×544 PNGs in build/preview/
 ```
 
 The tests link the real sampling policy against a fake platform and assert the

@@ -927,8 +927,10 @@ offsets, the selected row, and the modal. `screen_draw(t, ui)` receives a
 read-only pointer. HOME and PLUGINS share the header and FRAME strip; only the
 region between them changes. The metrics global keeps its single writer.
 **Consequence:** Tab state is not hidden in a panel or a second global. The old
-`layout_update()` and the PLUGINS slot in the home layout table are removed;
-HOME has a fixed canvas and no scrollbar.
+`layout_update()` and the PLUGINS slot in the home layout table were removed and
+HOME had a fixed canvas and no scrollbar. **Amended by D67:** the read-only
+summary block returns a slot below the columns, so HOME scrolls again; the state
+still lives in one `UiState`.
 **Rejected:** a global `scroll` per panel and an `if (tab)` branch inside every
 panel. Both make a third tab a rewrite instead of an addition.
 
@@ -1069,7 +1071,7 @@ line's whitespace.
 
 ## D63 — The HOME summary is permanent chrome
 
-**Status:** Accepted (supersedes D60)
+**Status:** Superseded by D67 (the summary is a HOME block, not header chrome)
 **Context:** The summary was drawn at `SUMMARY_Y 48`, exactly where the hazard
 band was drawn, and in micro `C_DIM`. A fault covered it, and on hardware it was
 easy to miss.
@@ -1137,3 +1139,25 @@ row reaches the installed-but-unlisted section, and Cross is ignored when the
 selected row is off-screen.
 **Rejected:** a hidden Cross-only action; skipping locked rows in the cursor;
 a switch drawn from panel-local policy.
+
+## D67 — The plugin summary is a HOME block, not header chrome
+
+**Status:** Accepted (supersedes D63)
+**Context:** The header line added in b28 was easy to miss and read as chrome
+rather than as one of the dashboard's readings. The owner asked for the
+activated-plugin summary to return to the slot the old ledger occupied, below
+STORAGE and SYSTEM, as a block rather than a status line.
+**Decision:** HOME draws a full-width PLUGINS satellite block at canvas y 406,
+924 × 140, below both columns. It carries the activated count at primary scale,
+`PLUGINS ONLINE` at label scale, and one micro line of non-empty group counts.
+`N PENDING` and `CONFIG WARNING` share the right end of that line. The block
+reports the launch set — what taiHEN actually loaded — and is read-only. The
+HOME header summary is removed; the header carries only the wordmark, tabs,
+clock and hazard band, and the band returns to y 48.
+**Consequence:** The count is no longer visible at scroll 0; the block sits just
+below the fold and HOME scrolls 150 px to reach it, with the scrollbar as the
+affordance. The block never grows with the plugin count, so it needs no height
+cap. The PLUGINS tab keeps its own header line naming the active config and the
+editor state.
+**Rejected:** keeping the count in the header; listing every activated plugin in
+the block (that is the ledger's job); two half-width blocks under each column.

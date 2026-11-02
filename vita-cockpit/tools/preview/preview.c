@@ -228,6 +228,21 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-alert.png", 4.0f, &ui))
         return 1;
 
+    /* The HOME plugin block: scrolled to the bottom, with the launch set. */
+    reset_scene(&ui);
+    ui.home_scroll = (float)layout_max_scroll();
+    if (!render(dir, "preview-home-plugins.png", 2.7f, &ui))
+        return 1;
+
+    /* The block with no config at all: absence is named, not counted as zero. */
+    reset_scene(&ui);
+    fake_remove_file("ur0:tai/config.txt");
+    editor_scan();
+    plugins_scan();
+    ui.home_scroll = (float)layout_max_scroll();
+    if (!render(dir, "preview-home-plugins-empty.png", 2.8f, &ui))
+        return 1;
+
     /* The editable ledger. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
@@ -282,7 +297,7 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-backup-warning.png", 3.2f, &ui))
         return 1;
 
-    /* Five groups on HOME: the summary must not cross the tab block. */
+    /* Five groups: the summary block must keep every group on one line. */
     reset_scene(&ui);
     fake_add_file("ur0:tai/config.txt",
                   "# five groups\n"
@@ -294,6 +309,7 @@ int main(int argc, char **argv)
     editor_scan();
     plugins_scan();
     ui.tab = UI_TAB_HOME;
+    ui.home_scroll = (float)layout_max_scroll();
     if (!render(dir, "preview-groups.png", 3.3f, &ui))
         return 1;
 
@@ -349,6 +365,7 @@ int main(int argc, char **argv)
     row = editor_row_for_path("ur0:tai/kubridge.skprx");
     (void)editor_toggle(row, 0, err, (int)sizeof(err));
     ui.tab = UI_TAB_HOME;
+    ui.home_scroll = (float)layout_max_scroll();
     if (!render(dir, "preview-home-pending.png", 6.0f, &ui))
         return 1;
 

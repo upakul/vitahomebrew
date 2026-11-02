@@ -64,6 +64,7 @@ add_executable(cockpit
   src/panels/core.c
   src/panels/frame.c
   src/panels/plugins.c
+  src/panels/plugins_summary.c
   src/panels/power.c
   src/panels/registry.c
   src/panels/storage.c

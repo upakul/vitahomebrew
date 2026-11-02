@@ -9,6 +9,14 @@ execution: code
 
 # Fix the Plugin Manager Regressions - Plan
 
+> **Partly superseded 2026-11-02 (b36).** The HOME summary placement — R1-R5 and
+> D63 — is replaced by D67: the summary is now a full-width block below STORAGE
+> and SYSTEM, and the header carries only the tabs, clock and hazard band. The
+> parser, write, snapshot, and row fixes in this plan remain current.
+>
+> The result block at the end records the b35 build this plan produced. The
+> current artifact and check counts are in `PROJECTS.md`.
+
 ## Goal Capsule
 
 - **Objective:** Make the shipped COCKPIT plugin manager honest and reliable on the 3.65 console: HOME always names how many plugins are online, PLUGINS can always enable or disable an editable row, every config entry is visible with an explicit status and control, and the backup model is one first-session original plus one per-session snapshot.

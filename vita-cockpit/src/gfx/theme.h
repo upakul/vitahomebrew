@@ -34,9 +34,9 @@
 #define C_YELLOW COCKPIT_RGBA8(0xFC, 0xEE, 0x0A, 0xFF)
 #define C_CYAN COCKPIT_RGBA8(0x2A, 0xD8, 0xE8, 0xFF)
 /*
- * Status green, used only for the plugin list's loaded marker (D47). It is not
- * an accent: nothing else may use it, so a green mark means "this is loaded"
- * and never "look here".
+ * Status green, used for the plugin list's loaded marker and the HOME activated
+ * count (D47, D67). It is not an accent: nothing else may use it, so a green
+ * mark means "this is loaded" and never "look here".
  */
 #define C_GREEN COCKPIT_RGBA8(0x3B, 0xE0, 0x7A, 0xFF)
 /* FRAME's accent, per the accent table: cyan at 60 %. */

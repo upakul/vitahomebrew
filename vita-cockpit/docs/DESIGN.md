@@ -19,7 +19,6 @@ moves.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ COCKPIT      HOME  PLUGINS  L/R                  14:22:07    │
-│              7 PLUGINS ONLINE  KERNEL 3  SYSTEM 2  APPS 1    │
 ├──────────────────────────────────────────────────────────────┤
 │ CORE 552×210                 │ POWER 360×210                  │
 │ ARM  333  GPU  166  BUS  166 │                                │
@@ -34,6 +33,10 @@ moves.
 │ UMA0                   N/A   │ MODEL            PSVITA        │
 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░  │                                │
 ├──────────────────────────────────────────────────────────────┤
+│ PLUGINS 924×140   (on the canvas, below both columns)        │
+│ 7  PLUGINS ONLINE                                            │
+│    KERNEL 3  SYSTEM 2  SYSTEM APPS 1                         │
+├──────────────────────────────────────────────────────────────┤
 │ FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼──                   │ 44 pinned
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -41,7 +44,9 @@ moves.
 The PLUGINS tab replaces the panel area with a full-width ledger; the header and
 FRAME strip stay pinned. The drawing is schematic; the table below is the exact
 geometry. The clock is the only identity in the header. The device model lives
-in SYSTEM, so nothing appears twice.
+in SYSTEM, so nothing appears twice. The PLUGINS block is the last canvas panel:
+at scroll 0 it sits just below the fold, and the scrollbar is the affordance
+that reaches it (D67).
 
 ### Grid
 
@@ -52,21 +57,22 @@ in SYSTEM, so nothing appears twice.
 | POWER | 582 | 0 | 360 | 210 |
 | STORAGE | 18 | 222 | 552 | 172 |
 | SYSTEM | 582 | 222 | 360 | 172 |
+| PLUGINS | 18 | 406 | 924 | 140 |
 | FRAME | 18 | 482 | 924 | 44 | (pinned, screen coords) |
 
 Panel `y` is canvas coordinates; the app offsets them by the scroll and clips to
 the band at y 64..472. The band carries a 12 px top inset, so the first panel
 starts at screen y 76 and its outline is whole; the inset scrolls away. The home
-canvas is `394` (the lower panel edge), and `layout_max_scroll()` is zero because
-`394 < 408 - 12`. The PLUGINS tab uses its own canvas:
+canvas is `546` (the PLUGINS lower edge), and `layout_max_scroll()` is 150
+because `546 > 408 - 12`. The PLUGINS tab uses its own canvas:
 `plugins_content_height()` starts at 0 and grows with the rows, groups, and
 orphan section; its scroll range is `height - (VIEW_H - VIEW_TOP_GAP)`.
 
 Constants: `MARGIN 18`, `GAP 12`, `SP_3 12`, `VIEW_TOP_GAP 12`. Both columns
 share both seams -- row one is 210 tall, row two 172 -- so the 12 px gap between
 the rows runs unbroken across the screen and both columns end at canvas y 394.
-The strip begins at screen y 482 and ends at 526, leaving an 18 px bottom
-margin.
+The summary block starts 12 px below them and ends at 546. The strip begins at
+screen y 482 and ends at 526, leaving an 18 px bottom margin.
 
 ### Vertical rhythm
 
@@ -116,7 +122,7 @@ else must shrink.
 | `C_WHITE` | `#EDEDF0` | numeric values |
 | `C_YELLOW` | `#FCEE0A` | primary — wordmark, hero accents, active tab, warning, missing/partial status, pending |
 | `C_CYAN` | `#2AD8E8` | machine data, group headers, boot status, disable control |
-| `C_GREEN` | `#3BE07A` | status only: activated plugin, online count and dot, enable control |
+| `C_GREEN` | `#3BE07A` | status only: activated plugin, activated count, enable control |
 
 `C_DIM` was `#43444F` until the host preview measured it at roughly 2:1 contrast
 against `C_PANEL` — unreadable at 10 px on a 5-inch screen, and the clock
@@ -245,27 +251,41 @@ STORAGE is the one place `--` is not used. A mount that is not present shows
 slot" and "this metric could not be read" are different statements, and an empty
 row is never acceptable (D41).
 
-### Tabs and the HOME summary
+### Tabs
 
 The 64 px header carries the tabs between the wordmark and the clock. `HOME` and
 `PLUGINS` are label-scale, 1 px tracked; the active tab is `C_YELLOW` with a 2 px
-underline at y 36, the inactive tab is `C_DIM`, and `L/R` sits beside them.
+underline at y 36, the inactive tab is `C_DIM`, and `L/R` sits beside them. The
+header carries no plugin count: that is a panel on HOME (D67). The hazard band
+sits at y 48, the line below the tabs, so a fault and the tabs coexist.
 
-The HOME summary owns the line at y 42, below the tabs and the clock. The head is
-label scale: `7 PLUGINS ONLINE`, singular for one, in `C_GREEN` when the count is
-non-zero and `C_WHITE` at zero. A 6 px green dot sits to its left. The detail is
-micro `C_DIM` to the left of the head: the non-empty group counts, with the
-pending count first in `C_YELLOW`. The whole run is right-aligned to the margin.
+### PLUGINS summary block
 
-When the run would cross the tab block the group counts drop from `TITLES`
-upward; the total and pending token always survive. A config problem replaces
-the head with `NO CONFIG.TXT`, `CONFIG UNREADABLE`, `CONFIG TOO LARGE`, or keeps
-the count and adds `CONFIG WARNING`, all in `C_YELLOW`. The hazard band is at
-y 56, the header's bottom 8 px, so a fault is below the summary and never covers
-it (D60, D63).
+The block is a satellite panel at x 18, w 924, below both columns at canvas y
+406, 140 px tall. It is one column of information, read left to right and top to
+bottom:
 
-Because the summary is in the header, HOME keeps both panel rows at scroll 0 and
-has no scrollbar.
+- a primary-scale count (`7`) at the content inset, tinted `C_GREEN` when the
+  count is non-zero and `C_WHITE` at zero;
+- `PLUGINS ONLINE` at label scale beside it, aligned to the count's bottom
+  (singular `PLUGIN ONLINE` for one);
+- one micro `C_DIM` line of non-empty group counts in load order: `KERNEL 3
+  SYSTEM 2  SYSTEM APPS 1  ALL TITLES 1  TITLES 0`. A config with no activated
+  plugins says `NO PLUGINS LISTED` instead of an empty line.
+
+`N PENDING` sits right-aligned on the group line in `C_YELLOW`, and
+`CONFIG WARNING` follows it when a stray path or a truncated row was seen. The
+count is always the launch set: a pending edit has not changed what taiHEN
+loaded, so it must not change the number (D59, D67).
+
+A config problem replaces the count with `--` and names the state beside it:
+`NO CONFIG.TXT` with `UR0:TAI OR UX0:TAI`, `CONFIG UNREADABLE` or
+`CONFIG TOO LARGE` with `READ ONLY`, all in `C_YELLOW`.
+
+The block is read-only; every action lives on the PLUGINS tab. It is fixed in
+height because its content is a summary, and it sits below the fold at scroll 0,
+so HOME carries a scrollbar whose thumb reaches it. The block has no ceiling to
+hit: the group line is one line regardless of plugin count.
 
 ### PLUGINS tab
 
@@ -354,8 +374,8 @@ rule, a small label, or a number.
 
 Two devices that would otherwise be decoration are load-bearing instead:
 
-- **The hazard band is an alert channel.** It occupies the header's bottom 8 px
-  and renders only when something is wrong — battery under 20 % while
+- **The hazard band is an alert channel.** It sits at y 48, on the line below the
+  tabs, and renders only when something is wrong — battery under 20 % while
   discharging, a failed memory sample, or `ux0:` not answering. It never reflows
   the layout. On a healthy console it is absent and the screen is quiet.
 - **The hazard band is the only alert, and it is yellow.** There is no second

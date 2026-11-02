@@ -68,9 +68,10 @@ constructs and starts.
 | `gfx/theme` | palette, panel chrome, meters, traces, formatters | `gfx/*`, `core/history` |
 | `panels/*` | one panel each; draw one region | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout` |
 | `panels/plugins` | the PLUGINS ledger, badges, controls, selection, orphans, and its geometry | `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
-| `ui/header` | wordmark, clock, tabs, summary, hazard band | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout`, `ui/tabbar` |
+| `panels/plugins_summary` | the HOME activated-plugin summary block | `core/plugins`, `core/plugin_editor`, `gfx/*` |
+| `ui/header` | wordmark, clock, tabs, hazard band | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout`, `ui/tabbar` |
 | `ui/ui_state` | navigation state: tab, two scrolls, selection, modal | nothing |
-| `ui/tabbar` | tab labels and the HOME/PLUGINS summary | `core/plugins`, `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
+| `ui/tabbar` | tab labels and the PLUGINS header line | `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
 | `ui/modal` | confirmation and error panel | `gfx/*`, `ui/ui_state` |
 | `app/screen` | one frame: header, active tab, strip, modal, sweep | `gfx/*`, `panels/*`, `ui/*`, `ui/ui_state` |
 | `app/app` | lifecycle, fixed-rate scheduler, frame loop, input, UiState | everything below |

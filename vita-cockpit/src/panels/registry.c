@@ -7,22 +7,25 @@ extern const Panel panel_core;
 extern const Panel panel_storage;
 extern const Panel panel_power;
 extern const Panel panel_system;
+extern const Panel panel_plugins_summary;
 extern const Panel panel_frame;
 
 /*
- * The home layout table (D11, D17, D43, D45).
+ * The home layout table (D11, D17, D43, D45, D67).
  *
  * Coordinates are canvas coordinates: y = 0 is the top of the scrolling panel
  * area, not the top of the screen. The app offsets every rect by the current
  * scroll and clips to the viewport, so the canvas can be taller than the screen
  * without any panel knowing about scrolling.
  *
- * The plugin ledger is no longer part of HOME; it lives on its own tab (D57).
+ * The editable plugin ledger lives on its own tab (D57). HOME carries a
+ * read-only summary block below both columns (D67).
  *
  *   CORE    552 x 210   hero, clocks and memory
  *   POWER   360 x 210   battery
  *   STORAGE 552 x 172   volumes
  *   SYSTEM  360 x 172   identity
+ *   PLUGINS 924 x 140   activated-plugin summary, below both columns
  */
 
 #define LEFT_W 552.0f
@@ -46,6 +49,15 @@ extern const Panel panel_frame;
 #define STORAGE_H 172.0f
 #define SYSTEM_Y STORAGE_Y
 #define SYSTEM_H STORAGE_H
+
+/*
+ * The summary block spans both columns under the second row. Its height is
+ * fixed because its content is a summary: one primary count and one group line,
+ * with pending/warning badges on the same line. Nothing here grows with the
+ * plugin count, so the block needs no ceiling (D67).
+ */
+#define PLUGINS_Y (STORAGE_Y + STORAGE_H + SP_3)
+#define PLUGINS_H 140.0f
 
 int layout_canvas_height(void)
 {
@@ -90,6 +102,9 @@ PanelSlot g_layout[] = {
      CHROME_SATELLITE},
     {&panel_system,
      {(float)(MARGIN + LEFT_W + GAP), SYSTEM_Y, RIGHT_W, SYSTEM_H},
+     CHROME_SATELLITE},
+    {&panel_plugins_summary,
+     {(float)MARGIN, PLUGINS_Y, LEFT_W + GAP + RIGHT_W, PLUGINS_H},
      CHROME_SATELLITE},
 };
 
