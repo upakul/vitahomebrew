@@ -212,8 +212,10 @@ one screen, in a Cyberpunk 2077 HUD style.
 safe authid refuses; `./build.sh --safe` still builds the restricted variant.
 `uma0:` reads `--` when no second volume is mounted.
 
-PLUGINS lists the plugins actually loaded from the tai configs, with the full
-AutoPlugin2 Vita catalog as its description table (155 rows, D47).
+PLUGINS lists every activated entry from the tai configs, in every section, up
+to 64 rows. Commented-out entries are ignored, and a file outside the catalog
+still gets a row with no invented description. The description table is the full
+AutoPlugin2 Vita catalog (155 rows, D47, D50).
 
 The route here was three hardware faults, each fixed by evidence rather than
 guesswork:
@@ -251,14 +253,14 @@ cd vita-cockpit
 ./build.sh
 ```
 
-Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b8.vpk`).
+Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b9.vpk`).
 `build.sh` counts distinct builds in `BUILD_NUMBER`: unchanged sources reuse the
 number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-ip>`.
 
 ### Test and preview without hardware
 
 ```sh
-./tools/test/run.sh      # 57 assertions over the sampling policy and plugin table
+./tools/test/run.sh      # 74 assertions over the sampling policy and plugin table
 ./tools/preview/run.sh   # PNGs of four states, with a draw-call budget
 ```
 

@@ -64,3 +64,10 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# ---------------------------------------------------------------------------
+# Local console data
+#
+# A real config.txt kept as a parser fixture. The app must never ship one, and
+# the tests build their own synthetic configs, so it stays out of the repo.
+user-files/

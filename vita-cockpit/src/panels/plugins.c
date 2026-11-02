@@ -63,8 +63,14 @@ float plugins_panel_height(void)
      * stride already contains the gap that follows it. Counting a full stride
      * per row over-allocated one line of dead space in the first version.
      */
-    return PLUGIN_TOP + (float)(rows - 1) * PLUGIN_STRIDE + PLUGIN_DESC_DY +
-           PLUGIN_LINE_H + PLUGIN_BOTTOM;
+    float h = PLUGIN_TOP + (float)(rows - 1) * PLUGIN_STRIDE + PLUGIN_DESC_DY +
+              PLUGIN_LINE_H + PLUGIN_BOTTOM;
+
+    /* The truncation notice occupies the slot a further row would have used. */
+    if (g_plugins.truncated)
+        h += PLUGIN_STRIDE;
+
+    return h;
 }
 
 static void draw_plugins(const Panel *self, Rect r)
@@ -90,6 +96,19 @@ static void draw_plugins(const Panel *self, Rect r)
             continue;
 
         draw_row(r, &g_plugins.items[i], y);
+    }
+
+    /*
+     * The array ceiling is high enough that a bootable config never reaches it,
+     * but if it does, the missing rows are stated rather than silently cut.
+     */
+    if (g_plugins.truncated) {
+        float y = r.y + PLUGIN_TOP + (float)g_plugins.count * PLUGIN_STRIDE;
+
+        if (y + PLUGIN_LINE_H > (float)VIEW_Y &&
+            y < (float)(VIEW_Y + VIEW_H))
+            font_text("MORE PLUGINS NOT SHOWN", r.x + PANEL_PAD, y, PX_MICRO,
+                      C_DIM);
     }
 }
 

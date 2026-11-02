@@ -23,7 +23,7 @@ after every job** — a job is not finished until this file reflects it.
 |---|---|---|---|---|
 | `vita-cap-test` | `built` | 2026-11-02 — artifact renamed to `cap-test-v<version>-b<build>.vpk` with an auto-incrementing build number | Run on hardware; confirm I/O, PCM audio, WiFi/DNS/HTTP | Unsafe `...0001`. 2.6 MB VPK. |
 | `vita-kernel-demo` | `built` | 2026-11-02 — artifact renamed to `kernel-demo-v<version>-b<build>.vpk`; the VPK CMake target is now interpolated from the artifact name | On-demand load test; confirm hook UID and the open counter | Not in `*KERNEL`. 3.65 NID unverified. |
-| `vita-cockpit` | `verified` | 2026-11-02 — simplification pass (D49): derived canvas and scroll state, viewport culling, one panel inset, one history traversal; preview draw calls 4,153 → 2,867 at scroll 0 | Flash b8 and confirm the scrolled plugin ledger and STORAGE on the OLED | `UNSAFE` default. 57 host checks. Culling is pixel-exact; only hardware proves the draw paths. |
+| `vita-cockpit` | `verified` | 2026-11-02 — plugin parser fix (D50): the 12-slot array cut a real 19-plugin config, and 32-byte names cut the catalog's longest entries; now 64 slots, 48-byte names, duplicates checked before the ceiling, visible truncation | Flash b9 and confirm all 19 rows of the real config appear in the ledger | `UNSAFE` default. 74 host checks. A 19-row render is 4,740 draw calls. |
 
 ---
 
@@ -33,11 +33,12 @@ Newest first. One line per job: date, project, what changed. Keep the board
 above as the summary; this is the history.
 
 Build numbers before 2026-11-02 predate the counter reset that pruned the stale
-VPKs; an old `b7` from before the reset is not the `b8` built after it. The date
-and the entry around it distinguish them.
+VPKs; an old `b7` from before the reset is not the `b8`/`b9` built after it.
+The date and the entry around it distinguish them.
 
 | Date | Project | Change |
 |---|---|---|
+| 2026-11-02 | `vita-cockpit` | Fixed the plugin list dropping entries: `PLUGINS_MAX` 12 → 64, name field 32 → 48 and path 64 → 96, duplicates checked before the ceiling, and a `MORE PLUGINS NOT SHOWN` notice if the array ever fills (D50). A real 19-entry config now parses 19/19; 74 checks. |
 | 2026-11-02 | workspace | Published the workspace to `github.com/upakul/vitahomebrew`: root `README.md`, MIT `LICENSE`, and a `.gitignore` that excludes the SDK, build output, crash dumps, and the third-party parser clone. |
 | 2026-11-02 | `vita-cockpit` | Applied the simplification review: deleted the preview's dead pool shim, derived canvas height and max scroll (D49), culled off-screen panels and plugin rows, unified PANEL_INSET, replaced history_max/history_min with one history_range, moved the storage errno byte into the port, and rewrote three false-confidence tests. 57 checks. |
 | 2026-11-02 | workspace | Doc sweep after the spacing and catalog work: wiki cockpit section now says UNSAFE default, 54 checks, four preview states and b7; ARCHITECTURE documents the mutable PLUGINS slot; DESIGN documents the plugin ledger; PROJECT roadmap marks v1 done; wiki README lists cockpit. |

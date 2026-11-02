@@ -820,3 +820,30 @@ the bottom. Culling is pixel-exact: the band is already clipped, and every panel
 draws inside its own rect.
 **Rejected:** caching panel geometry or the trace columns. Culling alone paid for
 the frame, and a cache adds state that a scroll offset makes easy to get wrong.
+
+## D50 — Keep the whole plugin list, and make a ceiling visible
+
+**Status:** Accepted (extends D47)
+**Context:** `PLUGINS_MAX` was 12, chosen while the panel was still a readout.
+A real 3.65 config listed 19 plugins: `add_plugin()` stored the first 12 and
+dropped the rest without a trace, so the panel presented a short list as if it
+were complete. The name field was 32 bytes while the catalog already contained a
+41-character file name, which cut the displayed name and made its description
+lookup miss. A path longer than its buffer was truncated, then failed the
+existence check, dropping the row with no explanation.
+**Decision:** The array holds 64 plugins (`PLUGINS_MAX`), the name field 48
+bytes (`PLUGIN_NAME_MAX`), and the path 96 (`PLUGIN_PATH_MAX`). Duplicate
+detection runs before the ceiling, so a repeated line such as `henkaku.suprx`
+under several sections is not counted as a lost plugin. A path too long for the
+buffer is skipped rather than truncated. If the ceiling is reached,
+`PluginList.truncated` is set and the panel prints `MORE PLUGINS NOT SHOWN` in
+the slot a further row would use; `plugins_panel_height()` accounts for the
+line, so it cannot be clipped.
+**Consequence:** A 19-plugin config renders all 19 rows, and the canvas grows to
+match because D49 derives it from the layout table. A 19-row scratch render
+measured 4,740 draw calls against the 5,500 budget. Comments are deactivated
+entries and never reach the list. Host tests are 74.
+**Rejected:** a dynamically allocated list. `plugins_scan()` runs once at
+startup, so a heap list would work, but it adds an allocation-failure path and a
+lifetime to a module that currently has neither. 64 is more than a console can
+usefully boot; the flag covers the impossible case instead of hiding it.

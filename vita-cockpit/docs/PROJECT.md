@@ -82,7 +82,7 @@ makes "which build is on the Vita?" answerable.
 The artifact is named:
 
 ```
-build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b8.vpk
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b9.vpk
 ```
 
 | Part | Source | Changes |
@@ -123,6 +123,7 @@ community knowledge.
 |---|---|
 | Builds and packages | `[V]` clean build, 86 KB VPK, no warnings |
 | Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh` |
+| Plugin list (`ur0:`/`ux0:tai/config.txt`) | `[V]` host harness keeps a 19-entry real config in full; host tests cover commented entries, long names, the 64-entry ceiling, and visible truncation |
 | Clocks, memory, power APIs declared in SDK | `[V]` header inspection |
 | Clock row follows a runtime clock change | `[C]` — the getters are re-read every sample, so an overclock applied by a plugin should appear within ~100 ms without a restart; not yet observed on hardware |
 | `SceIoDevInfo` layout | `[V]` `psp2common/kernel/iofilemgr.h`, 24 bytes |

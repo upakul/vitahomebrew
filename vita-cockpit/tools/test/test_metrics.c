@@ -213,6 +213,7 @@ static void test_plugins_parse(void)
                               "  ux0:tai/nonpdrm.skprx  \r\n"
                               "*main\n"
                               "ur0:tai/libshacccg.suprx\n"
+                              "#ur0:tai/vitaos_ps.suprx\n"
                               "not-a-plugin.txt\n"
                               "ur0:tai/kubridge.skprx\n";
 
@@ -223,6 +224,10 @@ static void test_plugins_parse(void)
 
     CHECK(added == 3);
     CHECK(list.count == 3);
+
+    /* A commented-out entry is deactivated, not merely unreadable. */
+    for (int i = 0; i < list.count; ++i)
+        CHECK(strcmp(list.items[i].name, "vitaos_ps.suprx") != 0);
     CHECK(strcmp(list.items[0].name, "kubridge.skprx") == 0);
     CHECK(strcmp(list.items[1].name, "nonpdrm.skprx") == 0);
     CHECK(strcmp(list.items[2].name, "libshacccg.suprx") == 0);
@@ -268,6 +273,91 @@ static void test_plugins_parse(void)
     CHECK(empty.count == 0);
 }
 
+/*
+ * A real config lists more than a dozen plugins. The array used to hold 12, so
+ * the tail of config.txt vanished without any sign; the ledger scrolls, so the
+ * number of rows is a storage question, not a layout one.
+ */
+static void test_plugins_capacity(void)
+{
+    enum { N = 40 };
+    char cfg[N * 32 + 16];
+    size_t off = 0;
+
+    off += (size_t)snprintf(cfg + off, sizeof(cfg) - off, "*KERNEL\n");
+
+    for (int i = 0; i < N; ++i)
+        off += (size_t)snprintf(cfg + off, sizeof(cfg) - off,
+                                "ur0:tai/plugin%02d.skprx\n", i);
+
+    PluginList list;
+    memset(&list, 0, sizeof(list));
+
+    int added = plugins_parse(cfg, &list);
+
+    CHECK(added == N);
+    CHECK(list.count == N);
+    CHECK(list.truncated == 0);
+    CHECK(strcmp(list.items[0].name, "plugin00.skprx") == 0);
+    CHECK(strcmp(list.items[N - 1].name, "plugin39.skprx") == 0);
+    CHECK(strcmp(list.items[N - 1].path, "ur0:tai/plugin39.skprx") == 0);
+}
+
+/* The longest catalog file name is 41 characters. A 32-byte field cut the name
+ * and made its description lookup miss. */
+static void test_plugins_long_name(void)
+{
+    static const char PATH[] =
+        "ur0:tai/analogstickdisable_swapleftandright.skprx";
+    char cfg[sizeof(PATH) + 2];
+    PluginList list;
+
+    memset(&list, 0, sizeof(list));
+    snprintf(cfg, sizeof(cfg), "%s\n", PATH);
+    plugins_parse(cfg, &list);
+
+    CHECK(list.count == 1);
+    CHECK(strcmp(list.items[0].name,
+                 "analogstickdisable_swapleftandright.skprx") == 0);
+    CHECK(strcmp(list.items[0].path, PATH) == 0);
+    CHECK(list.items[0].desc[0] != '\0');
+}
+
+/* If the ceiling is ever reached the loss is recorded, so the panel can say so
+ * rather than presenting a short list as complete. */
+static void test_plugins_truncation(void)
+{
+    char cfg[(PLUGINS_MAX + 2) * 32];
+    size_t off = 0;
+
+    for (int i = 0; i < PLUGINS_MAX + 1; ++i)
+        off += (size_t)snprintf(cfg + off, sizeof(cfg) - off,
+                                "ur0:tai/plugin%02d.skprx\n", i);
+
+    PluginList list;
+    memset(&list, 0, sizeof(list));
+    plugins_parse(cfg, &list);
+
+    CHECK(list.count == PLUGINS_MAX);
+    CHECK(list.truncated == 1);
+
+    /* A repeated line after the ceiling loses nothing, so it must not raise the
+     * flag: config.txt can list henkaku.suprx in several sections. */
+    PluginList full;
+    memset(&full, 0, sizeof(full));
+    off = 0;
+
+    for (int i = 0; i < PLUGINS_MAX; ++i)
+        off += (size_t)snprintf(cfg + off, sizeof(cfg) - off,
+                                "ur0:tai/plugin%02d.skprx\n", i);
+
+    plugins_parse(cfg, &full);
+    plugins_parse("ur0:tai/plugin00.skprx\n", &full);
+
+    CHECK(full.count == PLUGINS_MAX);
+    CHECK(full.truncated == 0);
+}
+
 int main(void)
 {
     test_alert_policy();
@@ -278,6 +368,9 @@ int main(void)
     test_history_ring();
     test_frame_floor();
     test_plugins_parse();
+    test_plugins_capacity();
+    test_plugins_long_name();
+    test_plugins_truncation();
 
     printf("%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

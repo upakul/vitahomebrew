@@ -15,9 +15,22 @@
  * exercised on the host with sample config text.
  */
 
-#define PLUGINS_MAX 12
-#define PLUGIN_NAME_MAX 32
-#define PLUGIN_PATH_MAX 64
+/*
+ * The list is a fixed array, so it needs a ceiling. It has to clear a real
+ * config: a heavy 3.65 setup boots around twenty plugins, and the old value of
+ * 12 silently dropped the tail of `config.txt`. 64 leaves room for a console
+ * that runs far more than that, and `truncated` makes the loss visible if the
+ * ceiling is ever reached instead of hiding it (D50).
+ */
+#define PLUGINS_MAX 64
+
+/* Longest catalog file name is 41 characters. 32 cut it and its description. */
+#define PLUGIN_NAME_MAX 48
+
+/* Room for a mount, a directory and a long file name. A truncated path would
+ * fail the existence check and drop the row without saying why. */
+#define PLUGIN_PATH_MAX 96
+
 #define PLUGIN_DESC_MAX 56
 
 typedef struct {
@@ -30,6 +43,7 @@ typedef struct {
     PluginInfo items[PLUGINS_MAX];
     int count;
     int config_found; /* at least one config.txt was readable */
+    int truncated;    /* the config listed more than PLUGINS_MAX plugins */
 } PluginList;
 
 extern PluginList g_plugins;

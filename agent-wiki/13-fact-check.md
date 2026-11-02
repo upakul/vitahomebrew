@@ -75,10 +75,11 @@ untested.
 
 | Check | Result |
 |---|---|
-| App build | Success, 86 KB VPK (b8) |
+| App build | Success, 86 KB VPK (b9) |
 | Auth ID | `0x2F00000000000001` (UNSAFE default, D42); `0x2F00000000000002` with `--safe` |
 | Imports | `ScePower`, `SceSysmem`, `SceIofilemgr`, `SceKernelModulemgr`, `SceRtc`, `SceCtrl`, `SceLibKernel`; `SceDisplay`, `SceGxm`, `SceSysmodule`, `SceAppMgr`, `SceCommonDialog` via libvita2d |
-| Host tests | 57 checks, 0 failures (`tools/test/run.sh`) |
+| Host tests | 74 checks, 0 failures (`tools/test/run.sh`) |
+| Plugin list | `[V]` a real 19-entry config parses 19/19; tests cover comments, long names, the 64-entry ceiling and its notice |
 | Host preview render | Four states rendered through the shipped composition (`tools/preview/run.sh`) |
 | Plugin descriptions | 155 rows: every AutoPlugin2 Vita catalog path plus iTLS, libshacccg, YAMT and HENkaku; 10 rows marked `[C]` for missing or corrected text |
 | Runtime | `[V]` 2026-11-02: all panels render on the 3.65 console |

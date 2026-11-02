@@ -244,7 +244,9 @@ could not be 552 wide while its neighbour is 360.
 
 The table is mutable only for the plugin list: `layout_update()` finds the
 PLUGINS slot by panel identity and writes `plugins_panel_height()` into it, so
-the region grows with the number of loaded plugins (D47). Every other rect is
+the region grows with the number of loaded plugins (D47). The list holds up to
+`PLUGINS_MAX` entries and sets `PluginList.truncated` when a config exceeds
+that, which the panel states rather than hiding (D50). Every other rect is
 fixed at compile time. The canvas height and the scroll limit are derived from
 the table (`layout_canvas_height()`, `layout_max_scroll()`), so neither can
 drift from it (D49).

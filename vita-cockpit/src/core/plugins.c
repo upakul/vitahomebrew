@@ -274,17 +274,22 @@ static void copy(char *dst, size_t cap, const char *src)
 
 static void add_plugin(PluginList *list, const char *path)
 {
-    if (list->count >= PLUGINS_MAX)
-        return;
-
     const char *base = base_name(path);
     if (*base == '\0')
         return;
 
-    /* The same plugin can be listed in both config files. */
+    /* The same plugin can be listed in both config files. Check this before the
+     * ceiling: a repeated line is not a lost plugin. */
     for (int i = 0; i < list->count; ++i) {
         if (ieq(list->items[i].name, base))
             return;
+    }
+
+    if (list->count >= PLUGINS_MAX) {
+        /* The config listed more than this array can hold. Say so; a silent
+         * drop is what made the 12-slot version look like a parser failure. */
+        list->truncated = 1;
+        return;
     }
 
     PluginInfo *p = &list->items[list->count];
@@ -340,7 +345,7 @@ int plugins_parse(const char *text, PluginList *list)
 
         char path[PLUGIN_PATH_MAX];
         if (len >= sizeof(path))
-            len = sizeof(path) - 1;
+            continue; /* too long: a truncated path names a different file */
 
         memcpy(path, line, len);
         path[len] = '\0';

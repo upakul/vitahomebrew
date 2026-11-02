@@ -33,7 +33,7 @@ moves.
 │ UMA0                   N/A   │ MODEL            PSVITA        │
 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░  │                                │
 ├──────────────────────────────┴────────────────────────────────┤
-│ ACTIVATED PLUGINS            height = 41 + 52 × rows         │
+│ ACTIVATED PLUGINS            height = 41 + 52 × rows (+ notice) │
 │ KUBRIDGE.SKPRX ──────────────────────────────── ▪            │
 │ kernel-user bridge module                                    │
 │ ...                                                          │
@@ -251,7 +251,9 @@ label scale, a leader rule to a green status dot, then the description one step
 down at micro scale. The dot is `C_GREEN`, the only status hue in the palette;
 every row in the panel is loaded, because the scan drops entries whose file is
 missing. The panel's height is `41 + 52 × rows`, so it grows with the list
-instead of clipping it (D47, D48).
+instead of clipping it (D47, D48). A config that exceeds the 64-entry ceiling
+adds one row of height for the `MORE PLUGINS NOT SHOWN` notice, which is the
+only text in this panel that is not a plugin (D50).
 
 Traces are a 2 px line, not a filled area. At 200 samples across ~500 px an
 area chart collapses into a solid block that hides the shape it exists to show
