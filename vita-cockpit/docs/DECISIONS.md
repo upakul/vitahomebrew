@@ -125,9 +125,9 @@ lag on the wall clock, which is invisible.
 
 ## D11 — Layout is a compile-time rect table
 
-**Status:** Accepted (revised)
+**Status:** Accepted (revised; the tab composer is D54)
 **Context:** One screen, one resolution, five regions of unequal size.
-**Decision:** `SCREEN_W`, `SCREEN_H`, `MARGIN`, `GAP` in `app/app.h`, and an
+**Decision:** `SCREEN_W`, `SCREEN_H`, `MARGIN`, `GAP` in `gfx/layout.h`, and an
 explicit `PanelSlot` table in `panels/registry.c` giving each panel its rect.
 **Consequence:** The layout is one readable table and can be asymmetric. Adding a
 region means deciding which other region gives up space; there is no reflow.
@@ -136,7 +136,8 @@ could only ever produce equal cells.
 
 ## D12 — No persistence in v1
 
-**Status:** Accepted
+**Status:** Superseded by D54-D66 (the plugin manager writes the active config
+and its two snapshots; the metrics history is still session-only)
 **Context:** The app measures; it does not record.
 **Decision:** COCKPIT writes nothing to disk.
 **Consequence:** It cannot corrupt a memory card, needs no save-data setup, and
@@ -933,7 +934,8 @@ panel. Both make a third tab a rewrite instead of an addition.
 
 ## D55 — The active plugin config follows taiHEN, not the old app order
 
-**Status:** Accepted (supersedes the ur0-first scan)
+**Status:** Accepted (supersedes the ur0-first scan; the invalid-file half is
+superseded by D65)
 **Context:** taiHEN opens `ux0:tai/config.txt` first and falls back to
 `ur0:tai/config.txt`. COCKPIT read ur0 first, so on a console with both files
 the dashboard showed the shadowed copy.
@@ -943,6 +945,8 @@ The active path is frozen at launch, and PLUGINS names the active path and any
 ignored one.
 **Consequence:** The dashboard now describes the file taiHEN actually loads. A
 stale ux0 no longer hides a working ur0 silently.
+**Updated by D65:** a path before the first section is a warning, not a
+read-only state, and a BOM does not hide the first section.
 **Rejected:** merging both files, and editing ur0 while ux0 shadows it.
 
 ## D56 — A byte-preserving line model, keyed by full path

@@ -53,6 +53,10 @@ every session writes `config.txt.session` from the launch bytes. There are no
 `.bak`/`.1.bak`/`.2.bak` files. `boot_config.txt` is never opened, read, copied,
 or written.
 
+A failed write leaves the original in place and reports `WRITE FAILED` plus the
+stage that was refused: `OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`,
+`READBACK`, or `RESTORE`.
+
 ## Read in this order
 
 | Doc | Contents |

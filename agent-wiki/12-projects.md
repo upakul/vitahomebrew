@@ -224,7 +224,9 @@ inactive file cannot be enabled. `henkaku.suprx` and the three boot modules are
 locked; the DRM, storage, and other load-bearing plugins warn before a change
 (D58). The active config gets `config.txt.original` once and
 `config.txt.session` every launch (D61); `boot_config.txt` is never opened,
-read, or backed up. A write is a verified rename-away swap (D64).
+read, or backed up. A write is a verified rename-away swap, and a failure names
+the stage (`OPEN`, `DATA`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, `RESTORE`)
+(D64).
 
 The route here was three hardware faults, each fixed by evidence rather than
 guesswork:

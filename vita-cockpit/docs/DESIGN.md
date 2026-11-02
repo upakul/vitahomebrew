@@ -319,9 +319,10 @@ when the cap is reached. Orphans are read-only (D61).
 A confirmation is a centred 600 × 220 `theme_panel` with `CHROME_SATELLITE`, the
 action and file in the title (`DISABLE STORAGEMGR.SKPRX`), the message wrapped at
 the panel inset in micro scale, and `CROSS CONFIRM  CIRCLE CANCEL` at the bottom.
-An error uses the same panel with `NOT WRITTEN` and `CROSS CLOSE`; an information
-modal uses `CANNOT CHANGE`. The modal is drawn after the FRAME strip, so it is
-the topmost surface.
+An error uses the same panel with `NOT WRITTEN` and `CROSS CLOSE`; its body is
+`WRITE FAILED` followed by the stage (`OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`,
+`RENAME`, `READBACK`, or `RESTORE`). An information modal uses `CANNOT CHANGE`.
+The modal is drawn after the FRAME strip, so it is the topmost surface.
 
 The active config has two snapshots: `config.txt.original` is written once and
 never overwritten; `config.txt.session` is the session-start file and is
