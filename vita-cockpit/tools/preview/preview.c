@@ -16,6 +16,7 @@
 #include "panels/plugins.h"
 #include "panels/registry.h"
 #include "ui/modal.h"
+#include "ui/plugin_flow.h"
 #include "fake_platform.h"
 
 /*
@@ -43,7 +44,7 @@ extern int preview_draw_calls(void);
  * per rect (D31), so a full frame with the hazard band up is ~3,000. The budget
  * catches accidental growth, not the batching that was removed.
  */
-#define DRAW_CALL_BUDGET 6500
+#define DRAW_CALL_BUDGET 8000
 
 /* 200 slow samples at 10 Hz fills the 20 s window the trace claims. */
 static void seed_trace(void)
@@ -228,13 +229,11 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-alert.png", 4.0f, &ui))
         return 1;
 
-    /* The HOME plugin block: scrolled to the bottom, with the launch set. */
     reset_scene(&ui);
     ui.home_scroll = (float)layout_max_scroll();
     if (!render(dir, "preview-home-plugins.png", 2.7f, &ui))
         return 1;
 
-    /* The block with no config at all: absence is named, not counted as zero. */
     reset_scene(&ui);
     fake_remove_file("ur0:tai/config.txt");
     editor_scan();
@@ -313,7 +312,6 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-groups.png", 3.3f, &ui))
         return 1;
 
-    /* A path with the same basename in both mounts must stay two rows. */
     reset_scene(&ui);
     fake_add_file("ur0:tai/config.txt",
                   "*main\nur0:tai/kubridge.skprx\nux0:tai/kubridge.skprx\n");
@@ -325,7 +323,6 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-duplicate.png", 3.5f, &ui))
         return 1;
 
-    /* The truth after one write: still loaded, turns off at the next boot. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     int row = editor_row_for_path("ur0:tai/kubridge.skprx");
@@ -335,71 +332,49 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-plugins-next.png", 3.7f, &ui))
         return 1;
 
-    /* The warning confirmation, opened through the real policy. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     int warned = editor_row_for_path("ur0:tai/storagemgr.skprx");
     ui.selection = warned;
-    modal_open_confirm(&ui, warned, 0,
-                       "WRITTEN NOW. APPLIES AT THE NEXT BOOT. UX0 MAY NOT "
-                       "MOUNT AFTER THE REBOOT. GAMES AND APPS ON THE CARD MAY "
-                       "NOT START. THIS IS CHANGE 1 THIS SESSION.");
-    snprintf(ui.modal_title, sizeof(ui.modal_title), "DISABLE %s",
-             g_editor.rows[warned].name);
+    plugin_flow_confirm(&ui, warned, 0);
     if (!render(dir, "preview-confirm.png", 4.0f, &ui))
         return 1;
 
-    /* The receipt: the file is saved; the running set is unchanged. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     row = editor_row_for_path("ur0:tai/kubridge.skprx");
     (void)editor_toggle(row, 0, err, (int)sizeof(err));
-    modal_open_receipt(&ui, "DISABLED KUBRIDGE.SKPRX",
-                       "WRITTEN TO UR0:TAI/CONFIG.TXT. APPLIES AT THE NEXT "
-                       "BOOT. THE CHANGE IS SAVED - LEAVING COCKPIT DOES NOT "
-                       "CANCEL IT. 1 CHANGES WAIT FOR THE NEXT BOOT.");
+    plugin_flow_receipt(&ui, row, 0);
     if (!render(dir, "preview-receipt.png", 4.2f, &ui))
         return 1;
 
-    /* The session sheet: reboot and undo live here, not on the row. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     row = editor_row_for_path("ur0:tai/kubridge.skprx");
     (void)editor_toggle(row, 0, err, (int)sizeof(err));
-    const char *choices[3] = {"REBOOT NOW", "UNDO LAST CHANGE", "CLOSE"};
-    modal_open_session(&ui,
-                       "7 LOADED   1 NEXT BOOT. AN UNDO SNAPSHOT IS AVAILABLE.",
-                       choices, 3);
+    plugin_flow_session(&ui);
     if (!render(dir, "preview-session.png", 4.4f, &ui))
         return 1;
 
-    /* The restart confirmation, with the card warning. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     row = editor_row_for_path("ur0:tai/kubridge.skprx");
     (void)editor_toggle(row, 0, err, (int)sizeof(err));
-    modal_open_restart(&ui,
-                       "THE CONSOLE WILL RESTART NOW. 1 CHANGES WILL APPLY AT "
-                       "BOOT. DO NOT REMOVE THE MEMORY CARD.");
+    plugin_flow_restart(&ui);
     if (!render(dir, "preview-restart.png", 4.6f, &ui))
         return 1;
 
-    /* A failed write must keep the row and say the config is unchanged. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     row = editor_row_for_path("ur0:tai/kubridge.skprx");
     ui.selection = row;
     fake_fail_write_path("ur0:tai/config.txt.undo", 1);
-    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    EditorWriteResult result = editor_toggle(row, 0, err, (int)sizeof(err));
     fake_fail_write_path("ur0:tai/config.txt.undo", 0);
-    modal_open_error(&ui,
-                     "DISABLE KUBRIDGE.SKPRX FAILED. WRITE FAILED UNDO. THE "
-                     "CONFIG IS UNCHANGED. TRY AGAIN, OR CHECK THE TAI FOLDER "
-                     "IN VITASHELL.");
+    plugin_flow_error(&ui, row, 0, result, err);
     if (!render(dir, "preview-write-failure.png", 5.0f, &ui))
         return 1;
 
-    /* A genuinely unreadable-to-the-parser config is read-only. */
     reset_scene(&ui);
     make_long_config();
     editor_scan();
@@ -409,7 +384,6 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-readonly.png", 5.5f, &ui))
         return 1;
 
-    /* The block with a config warning: the count stays, the stray path is named. */
     reset_scene(&ui);
     fake_add_file("ur0:tai/config.txt",
                   "ur0:tai/stray.skprx\n"

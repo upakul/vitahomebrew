@@ -18,6 +18,6 @@ int plugins_row_y(int row);
 int plugins_max_scroll(void);
 
 /* Draw the full-screen editable ledger. */
-void plugins_screen_draw(const UiState *ui);
+void plugins_screen_draw(const UiState *ui, float content_h);
 
 #endif

@@ -2,17 +2,18 @@
 #define COCKPIT_CORE_PLUGIN_EDITOR_H
 
 #include "core/plugins.h"
+#include "core/tai_config.h"
 
 /*
- * The editable view of the active taiHEN config (D55, D56, D61-D66).
+ * The editable view of the active taiHEN config (D55, D56, D61-D71).
  *
  * core/plugins.c owns the launch-activated set used by HOME. This module owns
  * the full line model used by PLUGINS: disabled entries, sections, `*!` halts,
- * the two snapshots, pending state, and the toggle plan. Keeping them separate
- * is what stops an edit from changing the HOME count before the reboot.
+ * the snapshots, pending state, and the toggle plan. Keeping them separate is
+ * what stops an edit from changing the HOME count before the reboot.
  */
 
-#define EDITOR_TEXT_MAX 32768
+#define EDITOR_TEXT_MAX TAI_CONFIG_MAX
 #define EDITOR_LINES_MAX 512
 #define EDITOR_ROWS_MAX EDITOR_LINES_MAX
 #define EDITOR_ORPHANS_MAX 32
@@ -25,7 +26,7 @@ typedef enum {
 } EditorLineKind;
 
 typedef enum {
-    EDITOR_ACTIVATED = 0,
+    EDITOR_LOADED = 0,
     EDITOR_DISABLED,
     EDITOR_MISSING,
     EDITOR_PARTIAL,
@@ -38,6 +39,13 @@ typedef enum {
     EDITOR_ACTION_DISABLE = 0,
     EDITOR_ACTION_ENABLE = 1,
 } EditorAction;
+
+typedef enum {
+    EDITOR_WRITE_OK = 0,
+    EDITOR_WRITE_REFUSED,
+    EDITOR_WRITE_FAILED,
+    EDITOR_WRITE_UNRECOVERED,
+} EditorWriteResult;
 
 typedef struct {
     int start;       /* first byte of the line */
@@ -71,7 +79,7 @@ typedef struct {
     int boot;
     int loaded;      /* active in the launch file: what is running now */
     int next_change; /* -1 off at boot, +1 on at boot, 0 no change */
-    int pending;     /* next_change != 0 */
+    int duplicate_name; /* another row shares this basename */
 } EditorRow;
 
 typedef struct {
@@ -95,8 +103,6 @@ typedef struct {
     int rows_truncated;
     int lines_truncated;
     int backup_warning;
-    int backup_original_ok;
-    int backup_session_ok;
     int undo_available; /* a .undo snapshot differs from the live file */
     int recovered;      /* a .old file was moved back into place at scan */
 
@@ -107,8 +113,7 @@ typedef struct {
     int row_count;
 
     int pending_count;
-    int activated_total;
-    int group_counts[PLUGIN_SECTION_COUNT];
+    int loaded_total;
 
     char orphans[EDITOR_ORPHANS_MAX][PLUGIN_PATH_MAX];
     int orphan_shadowed[EDITOR_ORPHANS_MAX];
@@ -122,19 +127,20 @@ extern EditorState g_editor;
 void editor_scan(void);
 
 /*
- * Apply the next toggle to a row. mode is 0 disable, 1 enable. Returns 0 on
- * success; on failure `err` carries a short, font-safe message.
+ * Apply the next toggle to a row. mode is 0 disable, 1 enable. `err` carries a
+ * short, font-safe message; the result says whether the refusal happened before
+ * the write or the config may be unrecovered.
  */
-int editor_toggle(int row, int mode, char *err, int err_cap);
+EditorWriteResult editor_toggle(int row, int mode, char *err, int err_cap);
 
 /*
  * Restore the active config from `config.txt.undo`, the pre-write snapshot.
- * One step only: the snapshot is not rotated. Returns 0 on success.
+ * One step only: the snapshot is not rotated.
  */
-int editor_undo(char *err, int err_cap);
+EditorWriteResult editor_undo(char *err, int err_cap);
 
-/* 0 disable, 1 enable, -1 no action. */
-int editor_next_action(int row);
+/* The next action for the row, or EDITOR_ACTION_NONE. */
+EditorAction editor_next_action(int row);
 
 int editor_row_actionable(int row);
 const char *editor_status_text(EditorStatus status);

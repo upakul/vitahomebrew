@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/platform.h"
 #include "core/plugins.h"
 
 /*
@@ -15,6 +16,39 @@
  * separate: HOME needs only the activated set, while PLUGINS needs offsets,
  * line endings, and reachability.
  */
+
+#define TAI_CONFIG_UX0 "ux0:tai/config.txt"
+#define TAI_CONFIG_UR0 "ur0:tai/config.txt"
+#define TAI_CONFIG_MAX 32768
+
+#define TAI_DIR_UX0 "ux0:tai"
+#define TAI_DIR_UR0 "ur0:tai"
+
+/*
+ * taiHEN opens ux0: first and falls back to ur0: only when ux0: is absent.
+ * An unreadable ux0: is still the active file; it must not be shadowed by a
+ * writable ur0:. Both scanners use this one decision (D71).
+ */
+typedef struct {
+    const char *path; /* NULL when neither mount has a file */
+    PlatformReadStatus status;
+} TaiConfigChoice;
+
+static inline TaiConfigChoice tai_config_choose(PlatformReadStatus ux0,
+                                                PlatformReadStatus ur0)
+{
+    TaiConfigChoice choice = {NULL, PLATFORM_READ_ABSENT};
+
+    if (ux0 != PLATFORM_READ_ABSENT) {
+        choice.path = TAI_CONFIG_UX0;
+        choice.status = ux0;
+    } else if (ur0 != PLATFORM_READ_ABSENT) {
+        choice.path = TAI_CONFIG_UR0;
+        choice.status = ur0;
+    }
+
+    return choice;
+}
 
 static inline char tai_lower(char c)
 {

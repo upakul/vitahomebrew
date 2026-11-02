@@ -357,6 +357,9 @@ static int verify_bytes(const char *path, const char *text, int len)
     return 0;
 }
 
+static int sibling_path(char *dst, size_t cap, const char *path,
+                        const char *suffix);
+
 static const char *s_write_error = "NONE";
 
 const char *platform_write_error(void)
@@ -377,8 +380,8 @@ int platform_write_config(const char *path, const char *text, int len)
     char tmp[PLATFORM_PATH_MAX];
     char old[PLATFORM_PATH_MAX];
 
-    if (snprintf(tmp, sizeof(tmp), "%s.new", path) >= (int)sizeof(tmp) ||
-        snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old)) {
+    if (sibling_path(tmp, sizeof(tmp), path, ".new") != 0 ||
+        sibling_path(old, sizeof(old), path, ".old") != 0) {
         s_write_error = "PATH";
         return -1;
     }
@@ -390,7 +393,7 @@ int platform_write_config(const char *path, const char *text, int len)
      * config, so it must not be overwritten silently; remove it first and fail
      * closed if it cannot be removed.
      */
-    if (platform_file_exists(old) && sceIoRemove(old) < 0) {
+    if (sceIoRemove(old) < 0 && platform_file_exists(old)) {
         s_write_error = "OLD";
         return -1;
     }
@@ -505,12 +508,12 @@ int platform_backup_config(const char *path, const char *text, int len,
 
     char dst[PLATFORM_PATH_MAX];
 
-    if (snprintf(dst, sizeof(dst), "%s.original", path) >= (int)sizeof(dst))
+    if (sibling_path(dst, sizeof(dst), path, ".original") != 0)
         have_original = 0;
     else if (!platform_file_exists(dst))
         have_original = platform_write_config(dst, text, len) == 0;
 
-    if (snprintf(dst, sizeof(dst), "%s.session", path) >= (int)sizeof(dst))
+    if (sibling_path(dst, sizeof(dst), path, ".session") != 0)
         have_session = 0;
     else
         have_session = platform_write_config(dst, text, len) == 0;
@@ -577,10 +580,10 @@ int platform_remove_undo(const char *path)
 
     if (sibling_path(dst, sizeof(dst), path, ".undo") != 0)
         return -1;
-    if (!platform_file_exists(dst))
-        return 0;
+    if (sceIoRemove(dst) < 0 && platform_file_exists(dst))
+        return -1;
 
-    return sceIoRemove(dst) < 0 ? -1 : 0;
+    return 0;
 }
 
 int platform_request_reboot(void)

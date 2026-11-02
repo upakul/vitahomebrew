@@ -207,7 +207,7 @@ from the console. Cyberpunk 2077 HUD as the visual reference.
 
 ### Status
 
-**Hardware-verified at b13; b44 is built and host-tested, pending the hardened
+**Hardware-verified at b13; b50 is built and host-tested, pending the hardened
 tabbed check.** Runs on the 3.65 console: every panel renders, and `ux0:` reads
 `17.7/119.3 GB` through `sceAppMgrGetDevInfo`. The shipped build is `UNSAFE` by
 default (D42) because `uma0:` capacity needs `sceIoDevctl`, which the safe authid
@@ -272,15 +272,15 @@ cd vita-cockpit
 ./build.sh
 ```
 
-Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b44.vpk`).
+Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b50.vpk`).
 `build.sh` counts distinct builds in `BUILD_NUMBER`: unchanged sources reuse the
 number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-ip>`.
 
 ### Test and preview without hardware
 
 ```sh
-./tools/test/run.sh      # 400 assertions over the sampling policy, plugin editor, snapshots, undo, recovery, write transaction, and input
-./tools/preview/run.sh   # 19 PNG states, with a 6,500 draw-call budget
+./tools/test/run.sh      # 396 assertions over the sampling policy, plugin editor, snapshots, undo, recovery, write transaction, and input
+./tools/preview/run.sh   # 19 PNG states, with an 8,000 draw-call budget
 ```
 
 ### Preview without hardware

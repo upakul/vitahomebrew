@@ -62,9 +62,14 @@ void screen_draw(float t, const UiState *ui)
         draw_scrollbar(ui->home_scroll, layout_max_scroll(),
                        layout_canvas_height());
     } else {
-        plugins_screen_draw(ui);
-        draw_scrollbar(ui->plugins_scroll, plugins_max_scroll(),
-                       (int)plugins_content_height());
+        float content_h = plugins_content_height();
+        int max_scroll = (int)content_h - (VIEW_H - VIEW_TOP_GAP);
+
+        if (max_scroll < 0)
+            max_scroll = 0;
+
+        plugins_screen_draw(ui, content_h);
+        draw_scrollbar(ui->plugins_scroll, max_scroll, (int)content_h);
     }
 
     /* Pinned: frame health is worth seeing at every scroll position. */

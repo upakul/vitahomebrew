@@ -28,46 +28,48 @@ static void copy_text(char *dst, size_t cap, const char *src)
     snprintf(dst, cap, "%s", src == NULL ? "" : src);
 }
 
-void modal_open_confirm(UiState *ui, int row, int mode, const char *text)
+static void modal_begin(UiState *ui, UiModal kind, const char *title,
+                        const char *text)
 {
-    if (ui == NULL)
-        return;
-
-    ui->modal = UI_MODAL_CONFIRM;
-    ui->modal_row = row;
-    ui->modal_mode = mode;
-    ui->modal_choice = 0;
-    ui->modal_choice_count = 0;
-    copy_text(ui->modal_title, sizeof(ui->modal_title), "CONFIRM CHANGE");
-    copy_text(ui->modal_body, sizeof(ui->modal_body), text);
-}
-
-void modal_open_error(UiState *ui, const char *text)
-{
-    if (ui == NULL)
-        return;
-
-    ui->modal = UI_MODAL_ERROR;
+    ui->modal = kind;
     ui->modal_row = -1;
     ui->modal_mode = -1;
     ui->modal_choice = 0;
     ui->modal_choice_count = 0;
-    copy_text(ui->modal_title, sizeof(ui->modal_title), "NOT WRITTEN");
+    copy_text(ui->modal_title, sizeof(ui->modal_title), title);
     copy_text(ui->modal_body, sizeof(ui->modal_body), text);
+}
+
+void modal_open_confirm_titled(UiState *ui, const char *title, int row,
+                               int mode, const char *text)
+{
+    if (ui == NULL)
+        return;
+
+    modal_begin(ui, UI_MODAL_CONFIRM, title, text);
+    ui->modal_row = row;
+    ui->modal_mode = mode;
+}
+
+void modal_open_error_titled(UiState *ui, const char *title, const char *text)
+{
+    if (ui == NULL)
+        return;
+
+    modal_begin(ui, UI_MODAL_ERROR, title, text);
+}
+
+void modal_open_info_titled(UiState *ui, const char *title, const char *text)
+{
+    if (ui == NULL)
+        return;
+
+    modal_begin(ui, UI_MODAL_INFO, title, text);
 }
 
 void modal_open_info(UiState *ui, const char *text)
 {
-    if (ui == NULL)
-        return;
-
-    ui->modal = UI_MODAL_INFO;
-    ui->modal_row = -1;
-    ui->modal_mode = -1;
-    ui->modal_choice = 0;
-    ui->modal_choice_count = 0;
-    copy_text(ui->modal_title, sizeof(ui->modal_title), "CANNOT CHANGE");
-    copy_text(ui->modal_body, sizeof(ui->modal_body), text);
+    modal_open_info_titled(ui, "CANNOT CHANGE", text);
 }
 
 void modal_open_receipt(UiState *ui, const char *title, const char *text)
@@ -75,14 +77,8 @@ void modal_open_receipt(UiState *ui, const char *title, const char *text)
     if (ui == NULL)
         return;
 
-    ui->modal = UI_MODAL_RECEIPT;
-    ui->modal_row = -1;
-    ui->modal_mode = -1;
-    ui->modal_choice = 0;
-    ui->modal_choice_count = 0;
-    copy_text(ui->modal_title, sizeof(ui->modal_title),
-              title == NULL ? "WRITTEN" : title);
-    copy_text(ui->modal_body, sizeof(ui->modal_body), text);
+    modal_begin(ui, UI_MODAL_RECEIPT,
+                title == NULL ? "WRITTEN" : title, text);
 }
 
 void modal_open_session(UiState *ui, const char *text, const char *const *choices,
@@ -91,23 +87,17 @@ void modal_open_session(UiState *ui, const char *text, const char *const *choice
     if (ui == NULL)
         return;
 
-    ui->modal = UI_MODAL_SESSION;
-    ui->modal_row = -1;
-    ui->modal_mode = -1;
-    ui->modal_choice = 0;
-    ui->modal_choice_count = 0;
-
     if (count < 0)
         count = 0;
     if (count > UI_MODAL_CHOICES_MAX)
         count = UI_MODAL_CHOICES_MAX;
 
+    modal_begin(ui, UI_MODAL_SESSION, "PLUGIN SESSION", text);
+
     for (int i = 0; i < count; ++i)
         copy_text(ui->modal_choices[i], UI_MODAL_CHOICE_TEXT, choices[i]);
 
     ui->modal_choice_count = count;
-    copy_text(ui->modal_title, sizeof(ui->modal_title), "PLUGIN SESSION");
-    copy_text(ui->modal_body, sizeof(ui->modal_body), text);
 }
 
 void modal_open_restart(UiState *ui, const char *text)
@@ -115,13 +105,7 @@ void modal_open_restart(UiState *ui, const char *text)
     if (ui == NULL)
         return;
 
-    ui->modal = UI_MODAL_RESTART;
-    ui->modal_row = -1;
-    ui->modal_mode = -1;
-    ui->modal_choice = 0;
-    ui->modal_choice_count = 0;
-    copy_text(ui->modal_title, sizeof(ui->modal_title), "RESTART THE VITA");
-    copy_text(ui->modal_body, sizeof(ui->modal_body), text);
+    modal_begin(ui, UI_MODAL_RESTART, "RESTART THE VITA", text);
 }
 
 static int draw_wrapped(const char *text, float x, float y, float max_w,
@@ -214,7 +198,7 @@ void modal_draw(const UiState *ui)
 
     switch (ui->modal) {
     case UI_MODAL_CONFIRM:
-        keys = ui->modal_mode == 2 ? "CROSS RESTORE  CIRCLE CANCEL"
+        keys = ui->modal_mode == UI_MODAL_MODE_RESTORE ? "CROSS RESTORE  CIRCLE CANCEL"
                                    : "CROSS CONFIRM  CIRCLE CANCEL";
         break;
     case UI_MODAL_RESTART:

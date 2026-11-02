@@ -13,32 +13,48 @@ static int pressed(int now, int before)
     return now && !before;
 }
 
+static InputEvent repeat_direction(InputState *state, int up, int down, float dt)
+{
+    if (pressed(up, state->up)) {
+        state->repeat = 0.0f;
+        return INPUT_UP;
+    }
+
+    if (pressed(down, state->down)) {
+        state->repeat = 0.0f;
+        return INPUT_DOWN;
+    }
+
+    if (up || down) {
+        state->repeat += dt;
+        if (state->repeat >= INPUT_REPEAT_DELAY) {
+            state->repeat = INPUT_REPEAT_DELAY - INPUT_REPEAT_RATE;
+            return up ? INPUT_UP : INPUT_DOWN;
+        }
+
+        return INPUT_NONE;
+    }
+
+    state->repeat = 0.0f;
+    return INPUT_NONE;
+}
+
 InputEvent input_update(InputState *state, int up, int down, int left, int right,
-                        int accept, int cancel, int options, int modal,
-                        int modal_nav, float dt)
+                        int accept, int cancel, int options,
+                        InputContext context, float dt)
 {
     if (state == NULL)
         return INPUT_NONE;
 
     InputEvent event = INPUT_NONE;
 
-    if (modal) {
+    if (context != INPUT_CONTEXT_APP) {
         if (pressed(accept, state->accept)) {
             event = INPUT_ACCEPT;
         } else if (pressed(cancel, state->cancel)) {
             event = INPUT_CANCEL;
-        } else if (modal_nav && pressed(up, state->up)) {
-            event = INPUT_UP;
-            state->repeat = 0.0f;
-        } else if (modal_nav && pressed(down, state->down)) {
-            event = INPUT_DOWN;
-            state->repeat = 0.0f;
-        } else if (modal_nav && (up || down)) {
-            state->repeat += dt;
-            if (state->repeat >= INPUT_REPEAT_DELAY) {
-                event = up ? INPUT_UP : INPUT_DOWN;
-                state->repeat = INPUT_REPEAT_DELAY - INPUT_REPEAT_RATE;
-            }
+        } else if (context == INPUT_CONTEXT_MODAL_LIST) {
+            event = repeat_direction(state, up, down, dt);
         } else {
             state->repeat = 0.0f;
         }
@@ -52,20 +68,8 @@ InputEvent input_update(InputState *state, int up, int down, int left, int right
         event = INPUT_CANCEL;
     } else if (pressed(options, state->options)) {
         event = INPUT_OPTIONS;
-    } else if (pressed(up, state->up)) {
-        event = INPUT_UP;
-        state->repeat = 0.0f;
-    } else if (pressed(down, state->down)) {
-        event = INPUT_DOWN;
-        state->repeat = 0.0f;
-    } else if (up || down) {
-        state->repeat += dt;
-        if (state->repeat >= INPUT_REPEAT_DELAY) {
-            event = up ? INPUT_UP : INPUT_DOWN;
-            state->repeat = INPUT_REPEAT_DELAY - INPUT_REPEAT_RATE;
-        }
     } else {
-        state->repeat = 0.0f;
+        event = repeat_direction(state, up, down, dt);
     }
 
     state->up = up;

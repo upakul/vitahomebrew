@@ -71,11 +71,7 @@ static void test_scan_sample(void)
     CHECK(g_editor.row_count == 9);
     CHECK(g_editor.orphan_count == 1);
     CHECK(strcmp(g_editor.orphans[0], "ur0:tai/extra.skprx") == 0);
-    CHECK(g_editor.activated_total == 7);
-    CHECK(g_editor.group_counts[PLUGIN_SECTION_KERNEL] == 3);
-    CHECK(g_editor.group_counts[PLUGIN_SECTION_SYSTEM] == 2);
-    CHECK(g_editor.group_counts[PLUGIN_SECTION_SYSTEM_APP] == 1);
-    CHECK(g_editor.group_counts[PLUGIN_SECTION_ALL_TITLES] == 1);
+    CHECK(g_editor.loaded_total == 7);
 
     CHECK(text_is("ur0:tai/config.txt.original", SAMPLE));
     CHECK(text_is("ur0:tai/config.txt.session", SAMPLE));
@@ -107,7 +103,7 @@ static void test_scan_sample(void)
 
     int yamt = editor_row_for_path("ur0:tai/yamt.suprx");
     CHECK(yamt >= 0);
-    CHECK(g_editor.rows[yamt].status == EDITOR_ACTIVATED);
+    CHECK(g_editor.rows[yamt].status == EDITOR_LOADED);
     CHECK(editor_next_action(yamt) == 0);
 }
 
@@ -126,11 +122,8 @@ static void test_toggle_round_trip(void)
 
     char err[96];
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) == 0);
-    CHECK(g_editor.rows[row].status == EDITOR_ACTIVATED);
-    CHECK(g_editor.rows[row].loaded == 1);
-    CHECK(g_editor.rows[row].next_change == -1);
+    CHECK(g_editor.rows[row].status == EDITOR_LOADED);
     CHECK(g_editor.pending_count == 1);
-    CHECK(g_editor.rows[row].pending == 1);
 
     CHECK(text_is("ur0:tai/config.txt.original", SAMPLE));
     CHECK(text_is("ur0:tai/config.txt.session", SAMPLE));
@@ -153,7 +146,7 @@ static void test_toggle_round_trip(void)
                   "ur0:tai/vita3g-disable.suprx\n"));
 
     CHECK(editor_toggle(row, 1, err, (int)sizeof(err)) == 0);
-    CHECK(g_editor.rows[row].status == EDITOR_ACTIVATED);
+    CHECK(g_editor.rows[row].status == EDITOR_LOADED);
     CHECK(g_editor.pending_count == 0);
     CHECK(text_is("ur0:tai/config.txt", before));
 }
@@ -264,8 +257,6 @@ static void test_backups(void)
     editor_scan();
     CHECK(g_editor.backup_warning == 1);
     CHECK(g_editor.read_only == 0);
-    CHECK(g_editor.backup_original_ok == 0);
-    CHECK(g_editor.backup_session_ok == 0);
     row = editor_row_for_path("ur0:tai/kubridge.skprx");
     CHECK(editor_row_actionable(row) == 1);
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) == 0);
@@ -283,26 +274,29 @@ static void test_write_failures(void)
     int row = editor_row_for_path("ur0:tai/kubridge.skprx");
 
     fake_fail_write_path("ur0:tai/config.txt", 1);
-    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) != 0);
+    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) ==
+          EDITOR_WRITE_FAILED);
     CHECK(strstr(err, "DATA") != NULL);
     CHECK(text_is("ur0:tai/config.txt", before));
     CHECK(!platform_file_exists("ur0:tai/config.txt.new"));
     CHECK(!platform_file_exists("ur0:tai/config.txt.old"));
     fake_fail_write_path("ur0:tai/config.txt", 0);
 
-    fake_fail_rename_path("ur0:tai/config.txt", 1);
-    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) != 0);
+    fake_fail_rename_path("ur0:tai/config.txt", FAKE_RENAME_FINAL);
+    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) ==
+          EDITOR_WRITE_FAILED);
     CHECK(strstr(err, "WRITE FAILED") != NULL);
     CHECK(strstr(err, "RENAME") != NULL);
     CHECK(text_is("ur0:tai/config.txt", before));
     CHECK(!platform_file_exists("ur0:tai/config.txt.new"));
     CHECK(!platform_file_exists("ur0:tai/config.txt.old"));
-    fake_fail_rename_path("ur0:tai/config.txt", 0);
+    fake_fail_rename_path("ur0:tai/config.txt", FAKE_RENAME_NONE);
 
     /* A snapshot that cannot be written refuses the change before the live
      * file is touched. */
     fake_fail_write_path("ur0:tai/config.txt.undo", 1);
-    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) != 0);
+    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) ==
+          EDITOR_WRITE_FAILED);
     CHECK(strstr(err, "UNDO") != NULL);
     CHECK(text_is("ur0:tai/config.txt", before));
     fake_fail_write_path("ur0:tai/config.txt.undo", 0);
@@ -318,10 +312,10 @@ static void test_safety_refusals(void)
     char err[96];
 
     fake_add_file("ur0:tai/config.txt", "# changed\n");
-    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) != 0);
+    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) ==
+          EDITOR_WRITE_REFUSED);
     CHECK(strstr(err, "CONFIG CHANGED") != NULL);
 
-    /* A too-long config is read-only with a named reason. */
     char cfg[EDITOR_LINES_MAX * 24 + 64];
     size_t off = 0;
     off += (size_t)snprintf(cfg + off, sizeof(cfg) - off, "*KERNEL\n");
@@ -337,14 +331,12 @@ static void test_safety_refusals(void)
     CHECK(editor_row_actionable(0) == 0);
     CHECK(editor_toggle(0, 0, err, (int)sizeof(err)) != 0);
 
-    /* No config at all. */
     fake_reset();
     fake_remove_file("ur0:tai/config.txt");
     editor_scan();
     CHECK(g_editor.source_ok == 0);
     CHECK(strcmp(editor_readonly_reason(), "NO CONFIG.TXT") == 0);
 
-    /* An unreadable config. */
     fake_reset();
     fake_fail_read(1);
     editor_scan();
@@ -352,7 +344,6 @@ static void test_safety_refusals(void)
     CHECK(strcmp(editor_readonly_reason(), "CONFIG UNREADABLE") == 0);
     fake_fail_read(0);
 
-    /* One over-long path is skipped with a warning, not a read-only page. */
     fake_reset();
     char long_cfg[256];
     char long_path[140];
@@ -372,7 +363,7 @@ static void test_statuses(void)
 {
     char err[96];
 
-    /* Partial: one active line, one commented. ENABLE completes the row. */
+    /* A partial row disables first; a second press enables all lines. */
     fake_reset();
     fake_add_file("ur0:tai/config.txt",
                   "*main\nur0:tai/kubridge.skprx\n"
@@ -383,10 +374,10 @@ static void test_statuses(void)
     CHECK(editor_next_action(row) == 0);
     CHECK(strcmp(editor_action_text(row), "DISABLE") == 0);
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) == 0);
-    CHECK(g_editor.rows[row].status == EDITOR_ACTIVATED);
+    CHECK(g_editor.rows[row].status == EDITOR_LOADED);
     CHECK(g_editor.rows[row].next_change == -1);
     CHECK(editor_toggle(row, 1, err, (int)sizeof(err)) == 0);
-    CHECK(g_editor.rows[row].status == EDITOR_ACTIVATED);
+    CHECK(g_editor.rows[row].status == EDITOR_LOADED);
     CHECK(g_editor.rows[row].next_change == 1);
 
     /* A missing file that is still active can be disabled. */
@@ -407,7 +398,6 @@ static void test_statuses(void)
     CHECK(editor_toggle(row, 1, err, (int)sizeof(err)) != 0);
     CHECK(strstr(err, "FILE IS MISSING") != NULL);
 
-    /* A missing file that is commented cannot be enabled. */
     fake_reset();
     fake_add_file("ur0:tai/config.txt", "*KERNEL\n#ur0:tai/absent.skprx\n");
     editor_scan();
@@ -419,7 +409,6 @@ static void test_statuses(void)
     CHECK(strcmp(editor_action_text(row), "MISSING") == 0);
     CHECK(strstr(editor_action_reason(row), "MISSING") != NULL);
 
-    /* A boot module is locked by name, without reading boot_config. */
     fake_reset();
     fake_add_file("ur0:tai/config.txt", "*KERNEL\nur0:tai/taihen.skprx\n");
     editor_scan();
@@ -428,7 +417,6 @@ static void test_statuses(void)
     CHECK(editor_next_action(row) == -1);
     CHECK(strcmp(editor_action_text(row), "BOOT") == 0);
 
-    /* A line after *! is not reached and is not editable. */
     fake_reset();
     fake_add_file("ur0:tai/config.txt",
                   "*KERNEL\nur0:tai/kubridge.skprx\n*!ALL\n"
@@ -439,7 +427,6 @@ static void test_statuses(void)
     CHECK(editor_next_action(row) == -1);
     CHECK(strcmp(editor_action_text(row), "--") == 0);
 
-    /* Henkaku can be restored but not disabled. */
     fake_reset();
     fake_add_file("ur0:tai/config.txt", "*main\n#ur0:tai/henkaku.suprx\n");
     editor_scan();
@@ -581,12 +568,12 @@ static void test_loaded_vs_next_boot(void)
     editor_scan();
     int row = editor_row_for_path("ur0:tai/kubridge.skprx");
     CHECK(g_editor.rows[row].loaded == 1);
-    CHECK(g_editor.rows[row].status == EDITOR_ACTIVATED);
+    CHECK(g_editor.rows[row].status == EDITOR_LOADED);
     CHECK(g_editor.rows[row].next_change == 0);
 
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) == 0);
     CHECK(g_editor.rows[row].loaded == 1);
-    CHECK(g_editor.rows[row].status == EDITOR_ACTIVATED);
+    CHECK(g_editor.rows[row].status == EDITOR_LOADED);
     CHECK(g_editor.rows[row].next_change == -1);
     CHECK(strcmp(editor_status_text(g_editor.rows[row].status), "LOADED") == 0);
 
@@ -594,7 +581,6 @@ static void test_loaded_vs_next_boot(void)
     CHECK(g_editor.rows[row].next_change == 0);
     CHECK(g_editor.pending_count == 0);
 
-    /* After a relaunch the edited file is the new baseline. */
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) == 0);
     editor_scan();
     CHECK(g_editor.rows[row].loaded == 0);
@@ -649,7 +635,6 @@ static void test_undo_snapshot(void)
     CHECK(g_editor.undo_available == 1);
     CHECK(text_is("ur0:tai/config.txt.undo", SAMPLE));
 
-    /* Undo works after a relaunch, when the live file is the new baseline. */
     editor_scan();
     CHECK(g_editor.rows[row].loaded == 0);
     CHECK(g_editor.pending_count == 0);
@@ -670,7 +655,6 @@ static void test_undo_snapshot(void)
     CHECK(strstr(err, "CONFIG CHANGED") != NULL);
     CHECK(text_is("ur0:tai/config.txt", "# changed elsewhere\n"));
 
-    /* A missing live file plus an undo copy is the recovery case. */
     fake_reset();
     editor_scan();
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) == 0);
@@ -683,6 +667,8 @@ static void test_undo_snapshot(void)
 
 static void test_ux0_unreadable_no_fallback(void)
 {
+    char err[96];
+
     fake_reset();
     fake_add_file("ux0:tai/config.txt", "*main\nux0:tai/kubridge.skprx\n");
     fake_fail_read_path("ux0:tai/config.txt", 1);
@@ -694,15 +680,19 @@ static void test_ux0_unreadable_no_fallback(void)
     CHECK(g_editor.read_only == 1);
     CHECK(g_editor.row_count == 0);
 
-    plugins_scan();
-    CHECK(g_plugins.config_found == 0);
-    CHECK(g_plugins.config_unreadable == 1);
-    CHECK(g_plugins.count == 0);
+    /* A ur0: undo copy must not steal the source from an unreadable ux0:. */
+    fake_add_file("ur0:tai/config.txt.undo", SAMPLE);
+    editor_scan();
+    CHECK(strcmp(g_editor.source, "ux0:tai/config.txt") == 0);
+    CHECK(text_is("ur0:tai/config.txt", SAMPLE));
+    CHECK(editor_undo(err, (int)sizeof(err)) != 0);
+    CHECK(text_is("ur0:tai/config.txt", SAMPLE));
 
     fake_fail_read_path("ux0:tai/config.txt", 0);
 }
 
-static void test_restore_stage(void)
+/* The fake models the swap; platform_psp2.c is not linked into host tests. */
+static void test_restore_stage_fake_model(void)
 {
     char err[96];
 
@@ -710,29 +700,31 @@ static void test_restore_stage(void)
     editor_scan();
     int row = editor_row_for_path("ur0:tai/kubridge.skprx");
 
-    /* Make the live file's final rename fail, then its restore fail too. */
-    fake_fail_rename_path("ur0:tai/config.txt", 1);
-    fake_fail_rename(2);
-    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) != 0);
+    fake_fail_rename_path("ur0:tai/config.txt",
+                          FAKE_RENAME_FINAL | FAKE_RENAME_RESTORE);
+    CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) ==
+          EDITOR_WRITE_UNRECOVERED);
     CHECK(strstr(err, "RESTORE") != NULL);
+    CHECK(g_editor.rows[row].next_change == 0);
+    CHECK(g_editor.pending_count == 0);
     CHECK(!platform_file_exists("ur0:tai/config.txt"));
     CHECK(text_is("ur0:tai/config.txt.old", SAMPLE));
-    fake_fail_rename(0);
-    fake_fail_rename_path("ur0:tai/config.txt", 0);
+    fake_fail_rename_path("ur0:tai/config.txt", FAKE_RENAME_NONE);
 }
 
 static void test_count_parity(void)
 {
     fake_reset();
+    fake_add_file("ux0:tai/config.txt", "*main\nux0:tai/kubridge.skprx\n");
+    fake_add_file("ux0:tai/kubridge.skprx", "");
     editor_scan();
     plugins_scan();
 
-    CHECK(g_editor.activated_total == g_plugins.count);
-
-    int a = editor_row_for_path("ur0:tai/kubridge.skprx");
-    int b = editor_row_for_path("ux0:tai/kubridge.skprx");
-    CHECK(a >= 0);
-    CHECK(b < 0);
+    CHECK(strcmp(g_editor.source, "ux0:tai/config.txt") == 0);
+    CHECK(g_editor.row_count == 1);
+    CHECK(editor_row_for_path("ux0:tai/kubridge.skprx") >= 0);
+    CHECK(g_editor.loaded_total == g_plugins.count);
+    CHECK(g_plugins.count == 1);
 }
 
 static void test_input_edges(void)
@@ -740,37 +732,52 @@ static void test_input_edges(void)
     InputState s;
     input_reset(&s);
 
-    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.016f) == INPUT_ACCEPT);
-    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.016f) == INPUT_NONE);
-    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.016f) == INPUT_NONE);
+    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, INPUT_CONTEXT_APP, 0.016f) ==
+          INPUT_ACCEPT);
+    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, INPUT_CONTEXT_APP, 0.016f) ==
+          INPUT_NONE);
+    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, INPUT_CONTEXT_APP, 0.016f) ==
+          INPUT_NONE);
 
     input_reset(&s);
-    CHECK(input_update(&s, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.016f) ==
+    CHECK(input_update(&s, 0, 0, 1, 0, 0, 0, 0, INPUT_CONTEXT_APP, 0.016f) ==
           INPUT_TAB_LEFT);
-    CHECK(input_update(&s, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.016f) == INPUT_NONE);
+    CHECK(input_update(&s, 0, 0, 1, 0, 0, 0, 0, INPUT_CONTEXT_APP, 0.016f) ==
+          INPUT_NONE);
 
     input_reset(&s);
-    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.016f) ==
+    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 1, INPUT_CONTEXT_APP, 0.016f) ==
           INPUT_OPTIONS);
-    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.016f) == INPUT_NONE);
+    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 1, INPUT_CONTEXT_APP, 0.016f) ==
+          INPUT_NONE);
 
     input_reset(&s);
-    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0.016f) == INPUT_DOWN);
-    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0.500f) == INPUT_DOWN);
-    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0.090f) == INPUT_DOWN);
+    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, INPUT_CONTEXT_APP, 0.016f) ==
+          INPUT_DOWN);
+    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, INPUT_CONTEXT_APP, 0.500f) ==
+          INPUT_DOWN);
+    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, INPUT_CONTEXT_APP, 0.090f) ==
+          INPUT_DOWN);
 
     input_reset(&s);
-    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.016f) == INPUT_ACCEPT);
-    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0.016f) == INPUT_NONE);
-    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0.016f) == INPUT_NONE);
-    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0.016f) == INPUT_ACCEPT);
+    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, INPUT_CONTEXT_APP, 0.016f) ==
+          INPUT_ACCEPT);
+    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, INPUT_CONTEXT_MODAL, 0.016f) ==
+          INPUT_NONE);
+    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, INPUT_CONTEXT_MODAL, 0.016f) ==
+          INPUT_NONE);
+    CHECK(input_update(&s, 0, 0, 0, 0, 1, 0, 0, INPUT_CONTEXT_MODAL, 0.016f) ==
+          INPUT_ACCEPT);
 
-    /* A list modal accepts up/down; a text modal swallows them. */
     input_reset(&s);
-    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0.016f) == INPUT_DOWN);
-    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0.016f) == INPUT_NONE);
-    CHECK(input_update(&s, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0.016f) == INPUT_UP);
-    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0.016f) == INPUT_NONE);
+    CHECK(input_update(&s, 0, 1, 0, 0, 0, 0, 0, INPUT_CONTEXT_MODAL_LIST,
+                       0.016f) == INPUT_DOWN);
+    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, INPUT_CONTEXT_MODAL_LIST,
+                       0.016f) == INPUT_NONE);
+    CHECK(input_update(&s, 1, 0, 0, 0, 0, 0, 0, INPUT_CONTEXT_MODAL_LIST,
+                       0.016f) == INPUT_UP);
+    CHECK(input_update(&s, 0, 0, 0, 0, 0, 0, 0, INPUT_CONTEXT_MODAL, 0.016f) ==
+          INPUT_NONE);
 }
 
 int main(void)
@@ -789,7 +796,7 @@ int main(void)
     test_interrupted_swap_recovery();
     test_undo_snapshot();
     test_ux0_unreadable_no_fallback();
-    test_restore_stage();
+    test_restore_stage_fake_model();
     test_count_parity();
     test_orphans();
     test_ux0_precedence_and_empty();

@@ -37,8 +37,8 @@ change written to the active config and applied on the next boot.
 - **Auth:** UNSAFE eboot by default (`0x2F00000000000001`), because `uma0:`
   capacity needs `sceIoDevctl` (D42). `./build.sh --safe` builds the
   restricted `0x2F00000000000002` variant.
-- **Status:** builds and packages (117.0 KB VPK, b44), runs on the 3.65 console at
-  b13; 400 host checks and 19 previews pass. The hardened tabbed build is pending
+- **Status:** builds and packages (115.0 KB VPK, b50), runs on the 3.65 console at
+  b13; 396 host checks and 19 previews pass. The hardened tabbed build is pending
   the on-console check.
 
 The HOME `PLUGINS` block sits below STORAGE and SYSTEM, spanning both columns. It
@@ -88,7 +88,7 @@ named; the app never writes the shadowed `ur0:` file in its place.
 ./build.sh --safe     # restricted eboot, marked -safe in the filename
 ```
 
-Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b44.vpk`.
+Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b50.vpk`.
 The build number counts distinct builds and is kept in `BUILD_NUMBER`: unchanged
 sources reuse the number, and only the newest VPK is kept (D46). Upload it with:
 
@@ -119,7 +119,7 @@ VitaShell must be running its FTP server on port 1337. The URL form is
 Links the real `core/` against a fake port and asserts the sampling policy, the
 plugin config model, the exact `#` edit, BOM and invalid-path handling, the two
 snapshots, the transactional write and its failure/restore path, and the input
-reducer. Exits non-zero on failure. 400 checks.
+reducer. Exits non-zero on failure. 396 checks.
 
 ## Preview without hardware
 
@@ -151,7 +151,7 @@ src/
   gfx/                vita2d adapter: primitives, font, theme, layout
   panels/             one file per panel, the plugin ledger, the HOME summary, and the layout registry
   platform/           the SDK adapter, the only file that samples the device
-  ui/                 screen chrome: header, tabs and the PLUGINS header line, modal
+  ui/                 screen chrome: header, tabs, modal, plugin dialog flow
 tools/
   fake/               shared mutable port double
   test/               host tests for the sampling policy

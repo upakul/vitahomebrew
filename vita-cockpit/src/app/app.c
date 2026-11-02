@@ -2,7 +2,6 @@
 
 #include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
-#include <stdio.h>
 #include <string.h>
 #include <vita2d.h>
 
@@ -16,12 +15,13 @@
 #include "panels/plugins.h"
 #include "panels/registry.h"
 #include "ui/modal.h"
+#include "ui/plugin_flow.h"
 #include "ui/ui_state.h"
 
 /*
  * Lifecycle, time, scheduling, and input. This file owns the frame loop and
  * the one mutable UiState. What is drawn lives in screen.c; how anything looks
- * lives in gfx/theme.
+ * lives in gfx/theme; dialog copy lives in ui/plugin_flow.
  */
 
 #define MICROS_PER_SECOND 1000000.0
@@ -33,10 +33,6 @@
 #define HOME_SCROLL_STEP 60.0f
 #define PLUGINS_SCROLL_STEP 40.0f
 
-#define REBOOT_MIN_PERCENT 20
-#define MODAL_TITLE_LABEL_MAX 34
-#define TEXT_MAX 512
-
 static int clamp_int(int value, int low, int high)
 {
     if (value < low)
@@ -46,36 +42,10 @@ static int clamp_int(int value, int low, int high)
     return value;
 }
 
-static void append_text(char *dst, size_t cap, const char *text)
+static void keep_selection_valid(UiState *ui)
 {
-    size_t used = strlen(dst);
-
-    if (text == NULL || text[0] == '\0' || used + 2 >= cap)
-        return;
-
-    if (used > 0) {
-        dst[used++] = ' ';
-        dst[used] = '\0';
-    }
-
-    snprintf(dst + used, cap - used, "%s", text);
-}
-
-/* A title that fits the 552 px modal content width at label scale. */
-static void fit_title(char *dst, size_t cap, const char *verb,
-                      const char *label)
-{
-    int len = (int)strlen(label);
-
-    if (len > MODAL_TITLE_LABEL_MAX)
-        snprintf(dst, cap, "%s %.34s..", verb, label);
-    else
-        snprintf(dst, cap, "%s %s", verb, label);
-}
-
-static void set_action_title(UiState *ui, const char *verb, const char *label)
-{
-    fit_title(ui->modal_title, sizeof(ui->modal_title), verb, label);
+    if (ui->selection >= g_editor.row_count)
+        ui->selection = g_editor.row_count > 0 ? g_editor.row_count - 1 : -1;
 }
 
 static void keep_selection_visible(UiState *ui)
@@ -149,41 +119,6 @@ static int selection_visible(const UiState *ui)
            screen_y < VIEW_Y + VIEW_H;
 }
 
-static void compose_confirm_body(char *body, size_t cap, int row, int mode)
-{
-    const EditorRow *r = &g_editor.rows[row];
-    const char *note = editor_confirm_text(row, mode);
-    char count[96];
-
-    body[0] = '\0';
-    append_text(body, cap, "WRITTEN NOW. APPLIES AT THE NEXT BOOT.");
-
-    if (note != NULL)
-        append_text(body, cap, note);
-
-    if (r->section == PLUGIN_SECTION_KERNEL) {
-        append_text(body, cap,
-                    "KERNEL PLUGIN. IF IT IS BAD THE VITA MAY NOT BOOT. HOLD L "
-                    "FROM POWER-ON TO SKIP CONFIG.TXT PLUGINS.");
-    } else if (r->section == PLUGIN_SECTION_SYSTEM) {
-        append_text(body, cap,
-                    "SYSTEM SHELL PLUGIN. A BAD ONE CAN CRASH LIVEAREA.");
-    }
-
-    if (r->line_count > 1) {
-        snprintf(count, sizeof(count),
-                 "THIS FILE IS LISTED %d TIMES. ALL REACHED LINES CHANGE.",
-                 r->line_count);
-        append_text(body, cap, count);
-    }
-
-    if (g_editor.pending_count > 0) {
-        snprintf(count, sizeof(count), "THIS IS CHANGE %d THIS SESSION.",
-                 g_editor.pending_count + 1);
-        append_text(body, cap, count);
-    }
-}
-
 static void open_toggle_modal(UiState *ui)
 {
     if (ui->selection < 0 || ui->selection >= g_editor.row_count)
@@ -199,123 +134,43 @@ static void open_toggle_modal(UiState *ui)
     }
 
     int mode = editor_next_action(ui->selection);
-    if (mode < 0) {
+    if (mode == EDITOR_ACTION_NONE) {
         const char *reason = editor_action_reason(ui->selection);
-        modal_open_info(ui, reason != NULL ? reason : "COCKPIT CANNOT CHANGE THIS ROW.");
+
+        modal_open_info(ui, reason != NULL ? reason
+                                           : "COCKPIT CANNOT CHANGE THIS ROW.");
         return;
     }
 
-    char body[TEXT_MAX];
-    compose_confirm_body(body, sizeof(body), ui->selection, mode);
-    modal_open_confirm(ui, ui->selection, mode, body);
-    set_action_title(ui, mode == EDITOR_ACTION_ENABLE ? "ENABLE" : "DISABLE",
-                     editor_row_label(ui->selection));
-}
-
-static void open_receipt(UiState *ui, int row, int mode)
-{
-    char body[TEXT_MAX];
-    char title[64];
-    const char *label = editor_row_label(row);
-    char pending[96];
-
-    snprintf(body, sizeof(body),
-             "WRITTEN TO %s. APPLIES AT THE NEXT BOOT. THE CHANGE IS SAVED - "
-             "LEAVING COCKPIT DOES NOT CANCEL IT.",
-             g_editor.source);
-
-    if (g_editor.pending_count > 0) {
-        snprintf(pending, sizeof(pending),
-                 "%d CHANGES WAIT FOR THE NEXT BOOT.",
-                 g_editor.pending_count);
-        append_text(body, sizeof(body), pending);
-    }
-
-    fit_title(title, sizeof(title),
-              mode == EDITOR_ACTION_ENABLE ? "ENABLED" : "DISABLED", label);
-    modal_open_receipt(ui, title, body);
-}
-
-static void open_toggle_error(UiState *ui, int row, int mode, const char *err)
-{
-    char body[TEXT_MAX];
-    const char *label = editor_row_label(row);
-
-    if (strstr(err, "RESTORE") != NULL) {
-        snprintf(body, sizeof(body),
-                 "%s FAILED AND THE ORIGINAL COULD NOT BE PUT BACK. THE CONFIG "
-                 "MAY BE INCOMPLETE. DO NOT REBOOT. CHECK CONFIG.TXT IN "
-                 "VITASHELL.",
-                 mode == EDITOR_ACTION_ENABLE ? "ENABLE" : "DISABLE");
-    } else {
-        snprintf(body, sizeof(body),
-                 "%s %s FAILED. %s. THE CONFIG IS UNCHANGED. TRY AGAIN, OR "
-                 "CHECK THE TAI FOLDER IN VITASHELL.",
-                 mode == EDITOR_ACTION_ENABLE ? "ENABLE" : "DISABLE", label,
-                 err);
-    }
-
-    modal_open_error(ui, body);
+    plugin_flow_confirm(ui, ui->selection, mode);
 }
 
 static void do_toggle(UiState *ui, int row, int mode)
 {
     char err[96];
+    EditorWriteResult result = editor_toggle(row, mode, err, (int)sizeof(err));
 
-    if (editor_toggle(row, mode, err, (int)sizeof(err)) != 0) {
-        open_toggle_error(ui, row, mode, err);
+    if (result != EDITOR_WRITE_OK) {
+        plugin_flow_error(ui, row, mode, result, err);
         return;
     }
 
-    if (ui->selection >= g_editor.row_count)
-        ui->selection = g_editor.row_count > 0 ? g_editor.row_count - 1 : -1;
-
-    open_receipt(ui, row, mode);
+    keep_selection_valid(ui);
+    plugin_flow_receipt(ui, row, mode);
 }
 
 static void do_undo(UiState *ui)
 {
     char err[96];
+    EditorWriteResult result = editor_undo(err, (int)sizeof(err));
 
-    if (editor_undo(err, (int)sizeof(err)) != 0) {
-        modal_open_error(ui, err);
+    if (result != EDITOR_WRITE_OK) {
+        plugin_flow_undo_error(ui, result, err);
         return;
     }
 
-    if (ui->selection >= g_editor.row_count)
-        ui->selection = g_editor.row_count > 0 ? g_editor.row_count - 1 : -1;
-
-    modal_open_receipt(ui, "RESTORED",
-                       "THE CONFIG IS BACK TO BEFORE THE LAST CHANGE. THE "
-                       "RESTORED FILE IS THE NEW SESSION START. IF THE VITA HAS "
-                       "NOT RESTARTED, THE RUNNING PLUGINS ARE UNCHANGED.");
-}
-
-static void open_restart(UiState *ui)
-{
-    char body[TEXT_MAX];
-
-    if (!g_metrics.power_valid) {
-        modal_open_info(ui,
-                        "THE BATTERY LEVEL IS UNKNOWN. CHARGE THE VITA BEFORE "
-                        "REBOOTING, THEN TRY AGAIN.");
-        snprintf(ui->modal_title, sizeof(ui->modal_title), "REBOOT BLOCKED");
-        return;
-    }
-
-    if (g_metrics.batt_pct < REBOOT_MIN_PERCENT && !g_metrics.charging) {
-        modal_open_info(ui,
-                        "CHARGE TO 20 PERCENT BEFORE REBOOTING. A REBOOT WHILE "
-                        "THE CARD IS BEING WRITTEN CAN LEAVE IT UNREADABLE.");
-        snprintf(ui->modal_title, sizeof(ui->modal_title), "REBOOT BLOCKED");
-        return;
-    }
-
-    snprintf(body, sizeof(body),
-             "THE CONSOLE WILL RESTART NOW. %d CHANGES WILL APPLY AT BOOT. DO "
-             "NOT REMOVE THE MEMORY CARD.",
-             g_editor.pending_count);
-    modal_open_restart(ui, body);
+    keep_selection_valid(ui);
+    plugin_flow_restored(ui);
 }
 
 static void do_restart(UiState *ui)
@@ -323,10 +178,9 @@ static void do_restart(UiState *ui)
     int rc = platform_request_reboot();
 
     if (rc < 0) {
-        modal_open_error(ui,
-                         "RESTART FAILED. TURN THE VITA OFF AND ON BY HAND. "
-                         "YOUR CHANGES ARE SAVED.");
-        snprintf(ui->modal_title, sizeof(ui->modal_title), "NOT RESTARTED");
+        modal_open_error_titled(ui, "NOT RESTARTED",
+                                "RESTART FAILED. TURN THE VITA OFF AND ON BY "
+                                "HAND. YOUR CHANGES ARE SAVED.");
         return;
     }
 
@@ -335,49 +189,28 @@ static void do_restart(UiState *ui)
      * If this frame still runs, say what to do rather than leave the screen
      * frozen on a promise.
      */
-    modal_open_info(ui,
-                    "REBOOT REQUESTED. IF THE VITA DOES NOT RESTART IN A FEW "
-                    "SECONDS, HOLD POWER FOR 5 SECONDS AND TURN IT ON AGAIN.");
-    snprintf(ui->modal_title, sizeof(ui->modal_title), "REBOOT");
-}
-
-static void open_session(UiState *ui)
-{
-    const char *choices[UI_MODAL_CHOICES_MAX];
-    int count = 0;
-    char body[TEXT_MAX];
-
-    if (g_editor.pending_count > 0)
-        choices[count++] = "REBOOT NOW";
-    if (g_editor.undo_available)
-        choices[count++] = "UNDO LAST CHANGE";
-    choices[count++] = "CLOSE";
-
-    snprintf(body, sizeof(body), "%d LOADED   %d NEXT BOOT.",
-             g_editor.activated_total, g_editor.pending_count);
-
-    if (g_editor.undo_available)
-        append_text(body, sizeof(body), "AN UNDO SNAPSHOT IS AVAILABLE.");
-
-    modal_open_session(ui, body, choices, count);
+    modal_open_info_titled(ui, "REBOOT",
+                           "REBOOT REQUESTED. IF THE VITA DOES NOT RESTART IN A "
+                           "FEW SECONDS, HOLD POWER FOR 5 SECONDS AND TURN IT "
+                           "ON AGAIN.");
 }
 
 static void choose_session(UiState *ui)
 {
-    int reboot_index = g_editor.pending_count > 0 ? 0 : -1;
-    int undo_index =
-        g_editor.undo_available ? (g_editor.pending_count > 0 ? 1 : 0) : -1;
+    PluginFlowAction action = plugin_flow_session_at(ui->modal_choice);
 
-    if (ui->modal_choice == reboot_index) {
-        ui->modal = UI_MODAL_NONE;
-        open_restart(ui);
-    } else if (ui->modal_choice == undo_index) {
-        ui->modal = UI_MODAL_NONE;
-        modal_open_confirm(ui, -1, 2,
-                           "RESTORE THE CONFIG FROM BEFORE THE LAST CHANGE? "
-                           "THIS UNDOES ONE CHANGE. IT DOES NOT TOUCH "
-                           "BOOT_CONFIG.TXT.");
-        snprintf(ui->modal_title, sizeof(ui->modal_title), "UNDO LAST CHANGE");
+    if (action == PLUGIN_FLOW_REBOOT) {
+        const char *blocked = plugin_flow_restart_blocked();
+
+        if (blocked != NULL)
+            modal_open_info_titled(ui, "REBOOT BLOCKED", blocked);
+        else
+            plugin_flow_restart(ui);
+    } else if (action == PLUGIN_FLOW_UNDO) {
+        modal_open_confirm_titled(
+            ui, "UNDO LAST CHANGE", -1, UI_MODAL_MODE_RESTORE,
+            "RESTORE THE CONFIG FROM BEFORE THE LAST CHANGE? THIS UNDOES ONE "
+            "CHANGE. IT DOES NOT TOUCH BOOT_CONFIG.TXT.");
     } else {
         ui->modal = UI_MODAL_NONE;
     }
@@ -394,7 +227,7 @@ static void handle_modal(UiState *ui, InputEvent event)
         if (event == INPUT_UP && ui->modal_choice > 0)
             --ui->modal_choice;
         else if (event == INPUT_DOWN &&
-                 ui->modal_choice + 1 < ui->modal_choice_count)
+                 ui->modal_choice + 1 < plugin_flow_session_count())
             ++ui->modal_choice;
         else if (event == INPUT_ACCEPT)
             choose_session(ui);
@@ -411,16 +244,14 @@ static void handle_modal(UiState *ui, InputEvent event)
     }
 
     if (ui->modal == UI_MODAL_RESTART) {
-        ui->modal = UI_MODAL_NONE;
         do_restart(ui);
         return;
     }
 
     int row = ui->modal_row;
     int mode = ui->modal_mode;
-    ui->modal = UI_MODAL_NONE;
 
-    if (mode == 2)
+    if (mode == UI_MODAL_MODE_RESTORE)
         do_undo(ui);
     else
         do_toggle(ui, row, mode);
@@ -437,10 +268,15 @@ static InputEvent read_event(const SceCtrlData *pad, InputState *state,
     int accept = (pad->buttons & SCE_CTRL_CROSS) != 0;
     int cancel = (pad->buttons & SCE_CTRL_CIRCLE) != 0;
     int options = (pad->buttons & SCE_CTRL_TRIANGLE) != 0;
+    InputContext context = INPUT_CONTEXT_APP;
+
+    if (ui->modal == UI_MODAL_SESSION)
+        context = INPUT_CONTEXT_MODAL_LIST;
+    else if (ui->modal != UI_MODAL_NONE)
+        context = INPUT_CONTEXT_MODAL;
 
     return input_update(state, up, down, left, right, accept, cancel, options,
-                        ui->modal != UI_MODAL_NONE,
-                        ui->modal == UI_MODAL_SESSION, dt);
+                        context, dt);
 }
 
 static void handle_event(UiState *ui, InputEvent event)
@@ -463,7 +299,7 @@ static void handle_event(UiState *ui, InputEvent event)
 
     case INPUT_OPTIONS:
         if (ui->tab == UI_TAB_PLUGINS)
-            open_session(ui);
+            plugin_flow_session(ui);
         break;
 
     case INPUT_UP:

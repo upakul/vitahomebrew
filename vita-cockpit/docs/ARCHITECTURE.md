@@ -58,7 +58,7 @@ constructs and starts.
 | `core/platform.h` | the port: raw device readings, no SDK types | stdint |
 | `core/metrics` | convert raw readings, maintain history, decide alerts | `core/*` |
 | `core/plugins` | parse the launch config, group by load target, resolve the activated set | `core/*` |
-| `core/tai_config.h` | shared taiHEN grammar: suffixes, section names, path keys | `core/plugins.h` |
+| `core/tai_config.h` | shared taiHEN grammar and ux0/ur0 config-source resolution | `core/plugins.h`, `core/platform.h` |
 | `core/plugin_editor` | byte-preserving config model, loaded/next-boot rows, undo snapshots, toggle plan | `core/*` |
 | `core/input` | pad edges and repeats, no SDK types | libc |
 | `platform/platform_psp2` | implement the port against the SDK | `psp2/*`, `core/platform.h` |
@@ -73,8 +73,9 @@ constructs and starts.
 | `ui/ui_state` | navigation state: tab, two scrolls, selection, modal | nothing |
 | `ui/tabbar` | tab labels and the PLUGINS header line | `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
 | `ui/modal` | confirmation, receipt, session, restart, error and info panels | `gfx/*`, `ui/ui_state` |
+| `ui/plugin_flow` | PLUGINS dialog copy and session action order, shared with the preview | `core/plugin_editor`, `core/metrics`, `ui/modal` |
 | `app/screen` | one frame: header, active tab, strip, modal, sweep | `gfx/*`, `panels/*`, `ui/*`, `ui/ui_state` |
-| `app/app` | lifecycle, fixed-rate scheduler, frame loop, input, UiState | everything below |
+| `app/app` | lifecycle, fixed-rate scheduler, frame loop, input, UiState, dialog actions | everything below |
 | `main.c` | `vita2d_init()`, `app_run()`, `vita2d_fini()` | `app/app`, `vita2d.h` |
 
 `app/screen.c` exists so the host preview renders the shipped composition

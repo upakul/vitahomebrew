@@ -41,6 +41,7 @@ SRC="$ROOT/src"
   "$SRC/panels/system.c" \
   "$SRC/ui/header.c" \
   "$SRC/ui/modal.c" \
+  "$SRC/ui/plugin_flow.c" \
   "$SRC/ui/tabbar.c" \
   -lz -lm \
   -o "$OUT/preview"

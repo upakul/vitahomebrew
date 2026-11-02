@@ -137,7 +137,7 @@ int plugins_max_scroll(void)
 static uint32_t status_colour(EditorStatus status)
 {
     switch (status) {
-    case EDITOR_ACTIVATED:
+    case EDITOR_LOADED:
         return C_GREEN;
     case EDITOR_MISSING:
     case EDITOR_PARTIAL:
@@ -164,11 +164,9 @@ static void draw_badge(float x, float y, const char *text, uint32_t colour)
     font_text(text, x + BADGE_PAD, y + 2.0f, PX_MICRO, colour);
 }
 
-static void draw_control(float right, float y, int row)
+static void draw_control(float right, float y, const char *label,
+                         int actionable, int action)
 {
-    const char *label = editor_action_text(row);
-    int actionable = editor_row_actionable(row);
-    int action = editor_next_action(row);
     uint32_t colour = C_DIM;
 
     if (actionable)
@@ -217,6 +215,7 @@ static void draw_row(const UiState *ui, Rect r, int index, float y)
 
     const char *label = editor_row_label(index);
     uint32_t colour = status_colour(p->status);
+    int action = editor_next_action(index);
 
     if (index == ui->selection)
         draw_rect(r.x + 4.0f, y - 2.0f, 2.0f, PLUGIN_STRIDE - 6.0f, C_WHITE);
@@ -224,7 +223,8 @@ static void draw_row(const UiState *ui, Rect r, int index, float y)
     draw_rect(r.x + PANEL_PAD, y + DOT_DY, DOT_SIZE, DOT_SIZE, colour);
 
     draw_name(label, name_x, y, right - CONTROL_W - CONTROL_GAP - name_x);
-    draw_control(right, y, index);
+    draw_control(right, y, editor_action_text(index),
+                 action != EDITOR_ACTION_NONE, action);
 
     const char *status = editor_status_text(p->status);
     float status_x = right - badge_width(status);
@@ -276,7 +276,7 @@ static void draw_config_lines(Rect r)
         colour = C_YELLOW;
     } else {
         snprintf(line, sizeof(line), "%d ROWS  %d LOADED  %d NEXT BOOT",
-                 g_editor.row_count, g_editor.activated_total,
+                 g_editor.row_count, g_editor.loaded_total,
                  g_editor.pending_count);
 
         if (g_editor.invalid || g_editor.paths_truncated) {
@@ -296,17 +296,10 @@ static void draw_config_lines(Rect r)
 
     y += CONFIG_LINE_H;
 
-    /*
-     * The controls are not printed anywhere else. One quiet line teaches the
-     * two-button model, and the restore state sits beside it so a user can see
-     * whether there is a way back before making a change (D70).
-     */
-    if (read_only != NULL)
-        font_text("TRIANGLE SESSION", r.x + PANEL_PAD, y, PX_MICRO, C_DIM);
-    else
-        font_text("CROSS CHANGE   TRIANGLE SESSION", r.x + PANEL_PAD, y,
-                  PX_MICRO, C_DIM);
+    const char *hint = read_only != NULL ? "TRIANGLE SESSION"
+                                         : "CROSS CHANGE   TRIANGLE SESSION";
 
+    font_text(hint, r.x + PANEL_PAD, y, PX_MICRO, C_DIM);
     font_text_right(g_editor.undo_available ? "UNDO READY" : "NO RESTORE POINT",
                     r.x + r.w - PANEL_PAD, y, PX_MICRO, C_DIM);
 }
@@ -326,14 +319,14 @@ static void draw_empty_state(Rect r)
     }
 }
 
-void plugins_screen_draw(const UiState *ui)
+void plugins_screen_draw(const UiState *ui, float content_h)
 {
     if (ui == NULL)
         return;
 
     Rect r = {(float)MARGIN,
               (float)(VIEW_Y + VIEW_TOP_GAP) - ui->plugins_scroll,
-              (float)(SCREEN_W - 2 * MARGIN), plugins_content_height()};
+              (float)(SCREEN_W - 2 * MARGIN), content_h};
 
     draw_set_clip(VIEW_X, VIEW_Y, VIEW_W, VIEW_H);
     theme_panel(r, "PLUGINS", C_CYAN, CHROME_LIST);
@@ -345,35 +338,30 @@ void plugins_screen_draw(const UiState *ui)
     float y =
         r.y + ROWS_TOP +
         (g_editor.row_count == 0 ? PLUGIN_EMPTY_H : 0.0f);
-    int groups_drawn = 0;
+    PluginSection group = PLUGIN_SECTION_COUNT;
 
-    for (int s = 0; s < PLUGIN_SECTION_COUNT; ++s) {
-        PluginSection section = (PluginSection)s;
+    for (int i = 0; i < g_editor.row_count; ++i) {
+        const EditorRow *row = &g_editor.rows[i];
 
-        if (rows_in_section(section) == 0)
-            continue;
+        if (row->section != group) {
+            if (group != PLUGIN_SECTION_COUNT)
+                y += GROUP_GAP;
 
-        if (groups_drawn > 0)
-            y += GROUP_GAP;
+            group = row->section;
 
-        if (y + LINE_H(PX_MICRO) > (float)VIEW_Y &&
-            y < (float)(VIEW_Y + VIEW_H))
-            font_text_tracked(editor_section_text(section), r.x + PANEL_PAD, y,
-                              PX_MICRO, C_CYAN, 1.0f);
-
-        y += GROUP_HEADER_H;
-        ++groups_drawn;
-
-        for (int i = 0; i < g_editor.row_count; ++i) {
-            if (g_editor.rows[i].section != section)
-                continue;
-
-            if (y + PLUGIN_DESC_DY + PLUGIN_LINE_H > (float)VIEW_Y &&
+            if (y + LINE_H(PX_MICRO) > (float)VIEW_Y &&
                 y < (float)(VIEW_Y + VIEW_H))
-                draw_row(ui, r, i, y);
+                font_text_tracked(editor_section_text(group), r.x + PANEL_PAD,
+                                  y, PX_MICRO, C_CYAN, 1.0f);
 
-            y += PLUGIN_STRIDE;
+            y += GROUP_HEADER_H;
         }
+
+        if (y + PLUGIN_DESC_DY + PLUGIN_LINE_H > (float)VIEW_Y &&
+            y < (float)(VIEW_Y + VIEW_H))
+            draw_row(ui, r, i, y);
+
+        y += PLUGIN_STRIDE;
     }
 
     if (g_editor.orphan_count > 0 || g_editor.orphans_unverified) {

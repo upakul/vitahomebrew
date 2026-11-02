@@ -8,20 +8,6 @@
 
 PluginList g_plugins;
 
-/*
- * The two places taiHEN looks for a plugin list. taiHEN opens ux0: first and
- * falls back to ur0:, so the app must use the same order (D55).
- */
-static const char *const CONFIGS[] = {
-    "ux0:tai/config.txt",
-    "ur0:tai/config.txt",
-};
-
-#define CONFIG_COUNT ((int)(sizeof(CONFIGS) / sizeof(CONFIGS[0])))
-
-/* Generous for a config file; the format is a few dozen short lines. */
-#define CONFIG_CAP 32768
-
 #define PLUGIN_SUFFIX_KERNEL ".skprx"
 #define PLUGIN_SUFFIX_USER ".suprx"
 
@@ -370,39 +356,32 @@ void plugins_scan(void)
 {
     memset(&g_plugins, 0, sizeof(g_plugins));
 
-    static char buf[CONFIG_CAP];
+    static char buf[TAI_CONFIG_MAX];
+    int n = 0;
 
-    /*
-     * taiHEN opens ux0: first and falls back to ur0: only when ux0: cannot be
-     * opened. A readable empty ux0: file is still the active config, and a
-     * too-large file is active but unreadable; neither falls through to ur0:.
-     */
-    for (int i = 0; i < CONFIG_COUNT; ++i) {
-        int n = 0;
-        PlatformReadStatus status = platform_read_config(
-            CONFIGS[i], buf, (int)sizeof(buf), &n);
+    PlatformReadStatus ux0 = platform_read_config(
+        TAI_CONFIG_UX0, buf, (int)sizeof(buf), &n);
+    PlatformReadStatus ur0 = PLATFORM_READ_ABSENT;
 
-        if (status == PLATFORM_READ_OK) {
-            g_plugins.config_found = 1;
-            if (n > 0)
-                plugins_parse(buf, &g_plugins);
-            break;
-        }
+    if (ux0 == PLATFORM_READ_ABSENT) {
+        ur0 = platform_read_config(TAI_CONFIG_UR0, buf, (int)sizeof(buf), &n);
+    }
 
-        if (status == PLATFORM_READ_TOO_LARGE) {
-            g_plugins.config_too_large = 1;
-            break;
-        }
+    TaiConfigChoice choice = tai_config_choose(ux0, ur0);
 
+    if (choice.status == PLATFORM_READ_OK) {
+        g_plugins.config_found = 1;
+        if (n > 0)
+            plugins_parse(buf, &g_plugins);
+    } else if (choice.status == PLATFORM_READ_TOO_LARGE) {
+        g_plugins.config_too_large = 1;
+    } else if (choice.status == PLATFORM_READ_UNREADABLE) {
         /*
          * If ux0: exists but cannot be read, taiHEN may still open it at boot.
          * Reporting ur0: as the active file would describe a file the boot
          * does not read (D71).
          */
-        if (status == PLATFORM_READ_UNREADABLE) {
-            g_plugins.config_unreadable = 1;
-            break;
-        }
+        g_plugins.config_unreadable = 1;
     }
 
     /*

@@ -21,6 +21,12 @@ typedef enum {
     INPUT_OPTIONS
 } InputEvent;
 
+typedef enum {
+    INPUT_CONTEXT_APP = 0,
+    INPUT_CONTEXT_MODAL,
+    INPUT_CONTEXT_MODAL_LIST,
+} InputContext;
+
 typedef struct {
     int up;
     int down;
@@ -38,13 +44,12 @@ typedef struct {
 void input_reset(InputState *state);
 
 /*
- * `modal` true means only accept and cancel pass through. `modal_nav` also
- * allows up/down, for a modal with a selectable action list. The opening press
- * is already in the previous state, so the modal cannot accept itself on the
- * next frame.
+ * `context` selects what the pad means: the app, a text modal (accept/cancel
+ * only), or a list modal (accept/cancel plus up/down). The opening press is
+ * already in the previous state, so the modal cannot accept itself next frame.
  */
 InputEvent input_update(InputState *state, int up, int down, int left, int right,
-                        int accept, int cancel, int options, int modal,
-                        int modal_nav, float dt);
+                        int accept, int cancel, int options,
+                        InputContext context, float dt);
 
 #endif

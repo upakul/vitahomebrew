@@ -245,20 +245,45 @@ typedef struct {
     int used;
 } FakeFile;
 
+/*
+ * One failure record per operation. An empty path means "any file"; the
+ * rename record also carries the stage mask so a test can fail the final move,
+ * the restore, or both with one setter.
+ */
+typedef struct {
+    int on;
+    int stage;
+    char path[PLATFORM_PATH_MAX];
+} FakeFail;
+
 static FakeFile s_files[FAKE_FILES];
-static int s_fail_write;
+static FakeFail s_fail_read;
+static FakeFail s_fail_write;
+static FakeFail s_fail_rename;
 static int s_fail_backup;
-static int s_fail_read;
-static int s_fail_rename; /* 1 final move, 2 restore move */
-static int s_fail_read_path_on;
-static char s_fail_read_path[96];
-static int s_fail_write_path_on;
-static char s_fail_write_path[96];
-static int s_fail_rename_path_on;
-static char s_fail_rename_path[96];
-static int s_fail_rename_path_stage;
-static int s_fail_reboot;
 static const char *s_write_error = "NONE";
+
+static int fail_hit(const FakeFail *f, const char *path, int stage)
+{
+    if (!f->on || path == NULL)
+        return 0;
+    if (f->path[0] != '\0' && strcmp(f->path, path) != 0)
+        return 0;
+    if (stage != 0 && (f->stage & stage) == 0)
+        return 0;
+
+    return 1;
+}
+
+static void fail_set(FakeFail *f, const char *path, int stage)
+{
+    f->on = stage != 0;
+    f->stage = stage;
+    f->path[0] = '\0';
+
+    if (path != NULL)
+        snprintf(f->path, sizeof(f->path), "%s", path);
+}
 
 static FakeFile *find_file(const char *path)
 {
@@ -316,18 +341,10 @@ static void add_file(const char *path, const char *text)
 static void files_reset(void)
 {
     memset(s_files, 0, sizeof(s_files));
-    s_fail_write = 0;
+    memset(&s_fail_read, 0, sizeof(s_fail_read));
+    memset(&s_fail_write, 0, sizeof(s_fail_write));
+    memset(&s_fail_rename, 0, sizeof(s_fail_rename));
     s_fail_backup = 0;
-    s_fail_read = 0;
-    s_fail_rename = 0;
-    s_fail_read_path_on = 0;
-    s_fail_read_path[0] = '\0';
-    s_fail_write_path_on = 0;
-    s_fail_write_path[0] = '\0';
-    s_fail_rename_path_on = 0;
-    s_fail_rename_path[0] = '\0';
-    s_fail_rename_path_stage = 0;
-    s_fail_reboot = 0;
     s_write_error = "NONE";
 
     add_file("ur0:tai/config.txt", SAMPLE_CONFIG);
@@ -355,11 +372,6 @@ void fake_remove_file(const char *path)
     remove_file(path);
 }
 
-void fake_fail_write(int on)
-{
-    s_fail_write = on;
-}
-
 void fake_fail_backup(int on)
 {
     s_fail_backup = on;
@@ -367,46 +379,22 @@ void fake_fail_backup(int on)
 
 void fake_fail_read(int on)
 {
-    s_fail_read = on;
-}
-
-void fake_fail_rename(int stage)
-{
-    s_fail_rename = stage;
+    fail_set(&s_fail_read, NULL, on ? 1 : 0);
 }
 
 void fake_fail_read_path(const char *path, int on)
 {
-    s_fail_read_path_on = on;
-    s_fail_read_path[0] = '\0';
-
-    if (path != NULL)
-        snprintf(s_fail_read_path, sizeof(s_fail_read_path), "%s", path);
-}
-
-void fake_fail_reboot(int on)
-{
-    s_fail_reboot = on;
+    fail_set(&s_fail_read, path, on ? 1 : 0);
 }
 
 void fake_fail_write_path(const char *path, int on)
 {
-    s_fail_write_path_on = on;
-    s_fail_write_path[0] = '\0';
-
-    if (path != NULL)
-        snprintf(s_fail_write_path, sizeof(s_fail_write_path), "%s", path);
+    fail_set(&s_fail_write, path, on ? 1 : 0);
 }
 
 void fake_fail_rename_path(const char *path, int stage)
 {
-    s_fail_rename_path_on = stage != 0;
-    s_fail_rename_path[0] = '\0';
-
-    if (path != NULL)
-        snprintf(s_fail_rename_path, sizeof(s_fail_rename_path), "%s", path);
-
-    s_fail_rename_path_stage = stage;
+    fail_set(&s_fail_rename, path, stage);
 }
 
 PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
@@ -418,10 +406,7 @@ PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
     FakeFile *f = find_file(path);
     if (f == NULL)
         return PLATFORM_READ_ABSENT;
-    if (s_fail_read)
-        return PLATFORM_READ_UNREADABLE;
-    if (s_fail_read_path_on && s_fail_read_path[0] != '\0' &&
-        strcmp(s_fail_read_path, path) == 0)
+    if (fail_hit(&s_fail_read, path, 0))
         return PLATFORM_READ_UNREADABLE;
     if (f->len >= cap)
         return PLATFORM_READ_TOO_LARGE;
@@ -483,9 +468,7 @@ int platform_write_config(const char *path, const char *text, int len)
         return -1;
     }
 
-    if (s_fail_write ||
-        (s_fail_write_path_on && s_fail_write_path[0] != '\0' &&
-         strcmp(s_fail_write_path, path) == 0)) {
+    if (fail_hit(&s_fail_write, path, 0)) {
         s_write_error = "DATA";
         return -1;
     }
@@ -501,8 +484,7 @@ int platform_write_config(const char *path, const char *text, int len)
 
     remove_file(tmp);
 
-    if (find_file(old) != NULL)
-        remove_file(old);
+    remove_file(old);
 
     FakeFile *f = make_file(tmp);
     if (f == NULL || len >= FAKE_FILE_MAX) {
@@ -528,9 +510,7 @@ int platform_write_config(const char *path, const char *text, int len)
         return -1;
     }
 
-    int final_failed = s_fail_rename == 1 ||
-                       (s_fail_rename_path_on && s_fail_rename_path_stage == 1 &&
-                        strcmp(s_fail_rename_path, path) == 0);
+    int final_failed = fail_hit(&s_fail_rename, path, FAKE_RENAME_FINAL);
 
     if (!final_failed)
         final_failed = rename_file(tmp, path) != 0;
@@ -538,9 +518,7 @@ int platform_write_config(const char *path, const char *text, int len)
     if (final_failed) {
         if (had_original) {
             int restore_failed =
-                s_fail_rename == 2 ||
-                (s_fail_rename_path_on && s_fail_rename_path_stage == 2 &&
-                 strcmp(s_fail_rename_path, path) == 0) ||
+                fail_hit(&s_fail_rename, path, FAKE_RENAME_RESTORE) ||
                 rename_file(old, path) != 0;
 
             if (restore_failed) {
@@ -558,9 +536,7 @@ int platform_write_config(const char *path, const char *text, int len)
     if (verify_bytes(path, text, len) != 0) {
         if (had_original) {
             int restore_failed =
-                s_fail_rename == 2 ||
-                (s_fail_rename_path_on && s_fail_rename_path_stage == 2 &&
-                 strcmp(s_fail_rename_path, path) == 0) ||
+                fail_hit(&s_fail_rename, path, FAKE_RENAME_RESTORE) ||
                 rename_file(old, path) != 0;
 
             if (restore_failed) {
@@ -664,16 +640,13 @@ int platform_remove_undo(const char *path)
         snprintf(dst, sizeof(dst), "%s.undo", path) >= (int)sizeof(dst))
         return -1;
 
-    if (find_file(dst) == NULL)
-        return 0;
-
     remove_file(dst);
     return 0;
 }
 
 int platform_request_reboot(void)
 {
-    return s_fail_reboot ? -1 : 0;
+    return 0;
 }
 
 int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)

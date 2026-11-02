@@ -30,13 +30,17 @@ void fake_set_clock_absent(void);
 
 void fake_add_file(const char *path, const char *text);
 void fake_remove_file(const char *path);
-void fake_fail_write(int on);
-void fake_fail_write_path(const char *path, int on);
 void fake_fail_backup(int on);
 void fake_fail_read(int on);
 void fake_fail_read_path(const char *path, int on);
-void fake_fail_rename(int stage);
+void fake_fail_write_path(const char *path, int on);
+
+typedef enum {
+    FAKE_RENAME_NONE = 0,
+    FAKE_RENAME_FINAL = 1,
+    FAKE_RENAME_RESTORE = 2,
+} FakeRenameStage;
+
 void fake_fail_rename_path(const char *path, int stage);
-void fake_fail_reboot(int on);
 
 #endif

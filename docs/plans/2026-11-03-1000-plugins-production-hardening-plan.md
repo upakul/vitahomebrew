@@ -93,7 +93,7 @@ execution: code
 | `app/app` | always-confirm path, receipt/error copy, session sheet, battery gate, reboot, undo confirm, title fitting |
 | `panels/plugins` | three-line header, `LOADED`/`OFF`/`MIXED`, `NEXT ON/OFF`, white cursor, white-space fix, action enum colour |
 | `tools/fake` | per-path read/write/rename failures, reboot result, recover/undo |
-| `tools/test` | 400 checks: truth, locked+missing, recovery, undo, ux0 rule, RESTORE, long path |
+| `tools/test` | 396 checks: truth, locked+missing, recovery, undo, ux0 rule, RESTORE, long path |
 | `tools/preview` | 19 scenes: next-boot row, receipt, session, restart |
 
 ## Test Matrix
@@ -141,9 +141,9 @@ execution: code
 
 ## Result
 
-- 400 host checks, 0 failures.
-- 19 preview scenes, busiest 6,343 draw calls, under the 6,500 budget.
-- Build: `cockpit-v01.00-b44.vpk`, 117.0 KB, 0 warnings.
+- 396 host checks, 0 failures.
+- 19 preview scenes, busiest 6,905 draw calls, under the 8,000 budget.
+- Build: `cockpit-v01.00-b50.vpk`, 115.0 KB, 0 warnings.
 - `boot_config.txt` remains byte-identical in the fake; no backup beside it.
 - Hardware verification is pending: the rename transaction and the cold-reset
   permission are still `[C]`.
