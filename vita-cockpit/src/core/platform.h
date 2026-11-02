@@ -139,18 +139,25 @@ PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
                                         int *out_len);
 
 /*
- * Replace `path` with `text`. Writes a sibling, verifies it by read-back, then
- * renames it over the original. Returns 0 on success, negative on failure; the
- * original is untouched on failure.
+ * Replace `path` with `text`. Writes a verified sibling, moves the original
+ * aside, moves the sibling into place, then reads the live file back. The
+ * original is restored if any step fails, so success means the bytes on disk
+ * were observed to match. Returns 0 on success, negative on failure.
  */
 int platform_write_config(const char *path, const char *text, int len);
 
 /*
- * Rotate `<path>.bak` -> `<path>.1.bak` -> `<path>.2.bak` and copy the current
- * file to `<path>.bak`. A missing file is a no-op. Returns 0 on success,
- * negative when a copy or verification fails.
+ * Snapshot the active config (D61). `text`/`len` are the bytes just read, so
+ * the snapshots cannot race a later read.
+ *
+ * `<path>.original` is written only when it does not exist; it is the first
+ * session's file and is never overwritten. `<path>.session` is written every
+ * session, replacing the previous session's snapshot. A missing source is a
+ * no-op. Returns 0 when both requested snapshots are satisfied, negative when
+ * either write fails; the two out flags say which one.
  */
-int platform_backup_rotate(const char *path);
+int platform_backup_config(const char *path, const char *text, int len,
+                           int *original_ok, int *session_ok);
 
 /* Directory listing for the orphan section. Return negative on failure. */
 typedef void (*PlatformDirCallback)(const char *name, int is_dir, void *user);

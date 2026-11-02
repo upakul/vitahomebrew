@@ -6,10 +6,11 @@
 /*
  * Which taiHEN plugins are loaded right now.
  *
- * Enso reads its plugin list from `ur0:tai/config.txt` (and the legacy
- * `ux0:tai/config.txt`), and loads every path listed under a section. A line
- * whose file is missing is skipped, so "listed" and "loaded" are not the same
- * thing: this module keeps only the entries whose file is actually on disk.
+ * taiHEN opens `ux0:tai/config.txt` first and falls back to
+ * `ur0:tai/config.txt` when ux0 cannot be opened. It loads every path listed
+ * under a section. A line whose file is missing is skipped, so "listed" and
+ * "loaded" are not the same thing: this module keeps only the entries whose
+ * file is actually on disk.
  *
  * Reading the files crosses the port; parsing does not, so the parser is
  * exercised on the host with sample config text.
@@ -60,7 +61,9 @@ typedef struct {
     int count;
     int config_found; /* at least one config.txt was readable */
     int config_too_large; /* the active config exceeded the read ceiling */
+    int config_unreadable; /* a config exists but could not be read */
     int config_invalid; /* a path appeared before the first section header */
+    int config_truncated; /* a path was too long for the fixed row field */
     int truncated;    /* the config listed more than PLUGINS_MAX plugins */
 } PluginList;
 

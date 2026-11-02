@@ -13,6 +13,7 @@
 #include "core/platform.h"
 #include "core/plugins.h"
 #include "gfx/layout.h"
+#include "panels/plugins.h"
 #include "panels/registry.h"
 #include "ui/modal.h"
 #include "fake_platform.h"
@@ -42,7 +43,7 @@ extern int preview_draw_calls(void);
  * per rect (D31), so a full frame with the hazard band up is ~3,000. The budget
  * catches accidental growth, not the batching that was removed.
  */
-#define DRAW_CALL_BUDGET 5500
+#define DRAW_CALL_BUDGET 6500
 
 /* 200 slow samples at 10 Hz fills the 20 s window the trace claims. */
 static void seed_trace(void)
@@ -190,7 +191,20 @@ static void reset_scene(UiState *ui)
 
     memset(ui, 0, sizeof(*ui));
     ui->tab = UI_TAB_HOME;
-    ui->selection = editor_nearest_actionable(0);
+    ui->selection = g_editor.row_count > 0 ? 0 : -1;
+}
+
+static void make_long_config(void)
+{
+    char cfg[EDITOR_LINES_MAX * 24 + 64];
+    size_t off = 0;
+
+    off += (size_t)snprintf(cfg + off, sizeof(cfg) - off, "*KERNEL\n");
+    for (int i = 0; i < EDITOR_LINES_MAX + 1; ++i)
+        off += (size_t)snprintf(cfg + off, sizeof(cfg) - off,
+                                "ur0:tai/p%03d.skprx\n", i);
+
+    fake_add_file("ur0:tai/config.txt", cfg);
 }
 
 int main(int argc, char **argv)
@@ -217,8 +231,55 @@ int main(int argc, char **argv)
     /* The editable ledger. */
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
-    ui.selection = editor_nearest_actionable(0);
+    ui.selection = 0;
     if (!render(dir, "preview-plugins.png", 3.0f, &ui))
+        return 1;
+
+    /* The bottom of the ledger: the orphan section must be reachable. */
+    reset_scene(&ui);
+    ui.tab = UI_TAB_PLUGINS;
+    ui.selection = g_editor.row_count > 0 ? g_editor.row_count - 1 : -1;
+    ui.plugins_scroll = (float)plugins_max_scroll();
+    if (!render(dir, "preview-plugins-bottom.png", 3.05f, &ui))
+        return 1;
+
+    /* A stray path is a warning: the valid rows stay editable. */
+    reset_scene(&ui);
+    fake_add_file("ur0:tai/config.txt",
+                  "ur0:tai/stray.skprx\n"
+                  "*KERNEL\nur0:tai/kubridge.skprx\n"
+                  "*main\n#ur0:tai/shellbat.suprx\n");
+    editor_scan();
+    plugins_scan();
+    ui.tab = UI_TAB_PLUGINS;
+    ui.selection = 0;
+    if (!render(dir, "preview-warning.png", 3.08f, &ui))
+        return 1;
+
+    /* Missing active and missing inactive rows: one can be disabled, one
+     * cannot be enabled, and each shows the control state. */
+    reset_scene(&ui);
+    fake_add_file("ur0:tai/config.txt",
+                  "*KERNEL\nur0:tai/absent.skprx\n"
+                  "#ur0:tai/also-absent.skprx\n"
+                  "*main\nur0:tai/kubridge.skprx\n"
+                  "#ur0:tai/shellbat.suprx\n");
+    editor_scan();
+    plugins_scan();
+    ui.tab = UI_TAB_PLUGINS;
+    ui.selection = 0;
+    if (!render(dir, "preview-missing.png", 3.1f, &ui))
+        return 1;
+
+    /* A failed snapshot is a warning, not a lock. */
+    reset_scene(&ui);
+    fake_fail_backup(1);
+    editor_scan();
+    plugins_scan();
+    fake_fail_backup(0);
+    ui.tab = UI_TAB_PLUGINS;
+    ui.selection = 0;
+    if (!render(dir, "preview-backup-warning.png", 3.2f, &ui))
         return 1;
 
     /* Five groups on HOME: the summary must not cross the tab block. */
@@ -233,7 +294,7 @@ int main(int argc, char **argv)
     editor_scan();
     plugins_scan();
     ui.tab = UI_TAB_HOME;
-    if (!render(dir, "preview-groups.png", 3.2f, &ui))
+    if (!render(dir, "preview-groups.png", 3.3f, &ui))
         return 1;
 
     /* A path with the same basename in both mounts must stay two rows. */
@@ -244,7 +305,7 @@ int main(int argc, char **argv)
     editor_scan();
     plugins_scan();
     ui.tab = UI_TAB_PLUGINS;
-    ui.selection = editor_nearest_actionable(0);
+    ui.selection = 0;
     if (!render(dir, "preview-duplicate.png", 3.5f, &ui))
         return 1;
 
@@ -252,8 +313,11 @@ int main(int argc, char **argv)
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     int warned = editor_row_for_path("ur0:tai/storagemgr.skprx");
+    ui.selection = warned;
     const char *message = editor_confirm_text(warned, 0);
     modal_open_confirm(&ui, warned, 0, message);
+    snprintf(ui.modal_title, sizeof(ui.modal_title), "DISABLE %s",
+             g_editor.rows[warned].name);
     if (!render(dir, "preview-confirm.png", 4.0f, &ui))
         return 1;
 
@@ -261,6 +325,7 @@ int main(int argc, char **argv)
     reset_scene(&ui);
     ui.tab = UI_TAB_PLUGINS;
     int row = editor_row_for_path("ur0:tai/kubridge.skprx");
+    ui.selection = row;
     fake_fail_write(1);
     char err[64];
     (void)editor_toggle(row, 0, err, (int)sizeof(err));
@@ -269,16 +334,15 @@ int main(int argc, char **argv)
         return 1;
     fake_fail_write(0);
 
-    /* A failed session backup makes the manager read-only. */
+    /* A genuinely unreadable-to-the-parser config is read-only. */
     reset_scene(&ui);
-    fake_fail_backup(1);
+    make_long_config();
     editor_scan();
     plugins_scan();
     ui.tab = UI_TAB_PLUGINS;
-    ui.selection = editor_nearest_actionable(0);
+    ui.selection = 0;
     if (!render(dir, "preview-readonly.png", 5.5f, &ui))
         return 1;
-    fake_fail_backup(0);
 
     /* HOME after a toggle: counts stay at the launch set, pending appears. */
     reset_scene(&ui);

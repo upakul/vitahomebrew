@@ -33,5 +33,6 @@ void fake_remove_file(const char *path);
 void fake_fail_write(int on);
 void fake_fail_backup(int on);
 void fake_fail_read(int on);
+void fake_fail_rename(int on);
 
 #endif

@@ -961,7 +961,8 @@ Two files with the same basename in ur0 and ux0 stay distinct.
 
 ## D57 — The PLUGINS screen is an editable ledger with transactional writes
 
-**Status:** Accepted
+**Status:** Superseded by D61 and D64 (the `.bak` rotation, the `.bak`
+precondition, and rename-over are gone; the row is still an editable ledger)
 **Context:** The ledger was read-only; a config write can leave a partial file.
 **Decision:** PLUGINS is a full-screen ledger. Cross toggles a row. A write
 removes a stale `.new`, writes a sibling, verifies it by read-back, checks the
@@ -1011,7 +1012,7 @@ a guessed boot marker.
 
 ## D60 — Tabs and the HOME summary live in the header chrome
 
-**Status:** Accepted
+**Status:** Superseded by D63 (the summary no longer shares the hazard line)
 **Context:** The old ledger slot starts at screen y 482, below the 472 band, so
 a summary there is invisible at launch.
 **Decision:** Tabs sit between the wordmark and clock at y 20, with a 2 px
@@ -1023,3 +1024,110 @@ counts from TITLES upward; the total and pending token always survive.
 the summary costs no viewport height.
 **Rejected:** a new pinned band (reduces the viewport), and a summary in the
 old ledger slot.
+
+## D61 — Two config snapshots, and `boot_config.txt` is out of scope
+
+**Status:** Accepted (supersedes D57's backup model)
+**Context:** The three-deep rotation rewrote an existing `.bak` by
+rename-over-existing, which the adapter marks `[C]`; a failed copy therefore
+made the manager read-only before the user touched anything. The user asked for
+one first-session original and one per-session snapshot. Separately, the app was
+reading `boot_config.txt` and creating `boot_config.txt.bak` copies, which is
+outside a config manager's remit.
+**Decision:** The active config gets exactly two snapshots. `config.txt.original`
+is written only when it does not exist and is never overwritten. `config.txt.session`
+is written from the session-start bytes on every launch and is overwritten each
+session. No `.bak`, `.1.bak`, or `.2.bak` is created. `boot_config.txt` is never
+opened, read, copied, renamed, or written; the three well-known boot module names
+are locked by name only. A failed snapshot sets `BACKUP WARNING` but never makes
+the config read-only.
+**Consequence:** A bad edit has two restore points, and a backup failure cannot
+lock the editor. The old `.bak` files from b28 are ignored and may be deleted by
+the user; COCKPIT does not touch them.
+**Rejected:** keeping the rotation; deleting `boot_config.txt.bak` from the app;
+backing up both mounts when only one is active.
+
+## D62 — The toggle is a two-state `#` edit
+
+**Status:** Accepted (supersedes D57's three-state cycle and `.bak` precondition)
+**Context:** The old action had a third `RESTORE` state and refused to write
+unless `.bak` matched the launch bytes. Both made the switch unpredictable.
+**Decision:** A row is either fully on or fully off. `ENABLE` removes the
+comment run from every reached line that names the path; `DISABLE` inserts one
+`#` before the path on every reached line. A line already in the target state is
+unchanged. Every other byte, including indentation, trailing spaces, CRLF, and a
+missing final newline, is preserved. The session snapshot is the restore path.
+**Consequence:** The control always reads `ENABLE` or `DISABLE` for an editable
+row. A partial launch row normalizes to all-on or all-off; pending reflects the
+difference from the launch pattern until the file matches it again.
+**Rejected:** a third restore action; re-emitting the whole file; rewriting a
+line's whitespace.
+
+## D63 — The HOME summary is permanent chrome
+
+**Status:** Accepted (supersedes D60)
+**Context:** The summary was drawn at `SUMMARY_Y 48`, exactly where the hazard
+band was drawn, and in micro `C_DIM`. A fault covered it, and on hardware it was
+easy to miss.
+**Decision:** HOME always draws `N PLUGINS ONLINE` (singular for one) at label
+scale on its own header line, with a green dot and a micro detail run for the
+non-empty groups and pending count. The hazard band moves to y 56, the bottom
+8 px of the header, and never covers the summary. A config problem is named:
+`NO CONFIG.TXT`, `CONFIG UNREADABLE`, `CONFIG TOO LARGE`, or `CONFIG WARNING`.
+**Consequence:** The count survives an alert. The total and pending token
+survive the fit loop; group counts drop first.
+**Rejected:** a new pinned band; putting the summary back in the panel area;
+letting a fault replace the count.
+
+## D64 — Read first, then stat; replace by rename-away and verify
+
+**Status:** Accepted (supersedes the write half of D57)
+**Context:** The read required `sceIoGetstat` before `sceIoOpen`, so a stat-only
+failure looked like a missing config. It accepted a short read as complete, and
+the write depended on `sceIoRename` replacing an existing file.
+**Decision:** `platform_read_config` opens first and reads to EOF or the ceiling.
+The stat is used only to classify an open failure and to reject a directory or a
+short read. `platform_write_config` writes and verifies `<path>.new`, moves the
+original to `<path>.old`, moves the verified sibling into place, reads the live
+file back, and restores `<path>.old` if any step fails. The normal path never
+renames over an existing file.
+**Consequence:** A short read cannot become a truncated rewrite. A write reports
+success only after the live bytes were observed. If the final replace is refused,
+the original is restored and the row is unchanged. The recovery path still uses
+a rename over the live file when verification fails; if that is refused, both
+files are left for manual recovery.
+**Rejected:** truncate-and-write; trusting the rename's return value; a
+read-back only of the sibling.
+
+## D65 — A BOM and a stray path are data, not corruption
+
+**Status:** Accepted (supersedes the invalid-file half of D55)
+**Context:** A UTF-8 BOM before the first `*KERNEL` made the parser miss the
+section; the next path was "before a section", which zeroed the HOME count and
+made the editor read-only. A single stray path therefore hid a valid config.
+**Decision:** Both parsers skip a BOM at offset 0 and preserve it in the file.
+A path before the first section is a warning: the row is `NOT REACHED`, the
+valid entries still count, and the config stays editable. Only an unreadable,
+too-large, too-long, or too-many-rows file is read-only, with the reason named.
+**Consequence:** A Windows-edited config or one stray line no longer disables the
+manager. The owner sees `CONFIG WARNING` and can repair the file.
+**Rejected:** treating the whole file as invalid; stripping the BOM on write.
+
+## D66 — The row owns its badge and control
+
+**Status:** Accepted
+**Context:** The page had one status string and no visible action. Selection
+skipped non-actionable rows, so a missing or locked row could not be selected to
+read why it would not act.
+**Decision:** Every row draws a status badge (`ACTIVATED`, `DISABLED`, `MISSING`,
+`PARTIAL`, `NOT REACHED`, `BOOT`), an optional `PENDING` badge, and an action
+control (`ENABLE`, `DISABLE`, `LOCKED`, `MISSING`, `BOOT`, or `--`). The control
+is greyed when `editor_row_actionable()` is false; Cross on a greyed row opens a
+short reason instead of acting. Every row is selectable. A missing active row
+may be disabled; a missing inactive row may not be enabled.
+**Consequence:** The control and the policy come from the same module, so the
+button cannot promise an action the editor will refuse. Scrolling past the last
+row reaches the installed-but-unlisted section, and Cross is ignored when the
+selected row is off-screen.
+**Rejected:** a hidden Cross-only action; skipping locked rows in the cursor;
+a switch drawn from panel-local policy.

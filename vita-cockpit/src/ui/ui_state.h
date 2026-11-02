@@ -16,7 +16,8 @@ typedef enum {
 typedef enum {
     UI_MODAL_NONE = 0,
     UI_MODAL_CONFIRM,
-    UI_MODAL_ERROR
+    UI_MODAL_ERROR,
+    UI_MODAL_INFO
 } UiModal;
 
 typedef struct {

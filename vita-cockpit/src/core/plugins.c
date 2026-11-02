@@ -218,13 +218,6 @@ static const KnownPlugin KNOWN[] = {
 
 #define KNOWN_COUNT ((int)(sizeof(KNOWN) / sizeof(KNOWN[0])))
 
-/* Case-insensitive compare of a slice, which is not NUL-terminated. */
-/*
- * Map a section header to its group. `line` includes the leading '*', which is
- * how taiHEN marks a load target. Section names are compared exactly, because
- * taiHEN uses strcmp; `*main` is lowercase and `*ALL` is uppercase. Unknown
- * targets are title IDs (D51).
- */
 static void add_plugin(PluginList *list, const char *path, PluginSection section)
 {
     const char *base = tai_base_name(path);
@@ -272,6 +265,14 @@ int plugins_parse(const char *text, PluginList *list)
 {
     if (text == NULL || list == NULL)
         return 0;
+
+    /*
+     * A UTF-8 BOM before the first header is common after a Windows edit.
+     * taiHEN and the editor both need to see the header, so skip the marker
+     * for parsing; it stays in the file and the editor's raw spans keep it.
+     */
+    if (tai_has_bom(text, (int)strlen(text)))
+        text += TAI_BOM_LEN;
 
     int added = 0;
     const char *p = text;
@@ -322,23 +323,26 @@ int plugins_parse(const char *text, PluginList *list)
 
         /*
          * A path before any section header has no load target. taiHEN ignores
-         * it; filing it under a guess would invent a group. The config is
-         * invalid, so HOME shows no counts rather than a partial set.
+         * it; the rest of the file is still a valid config, so this is a
+         * warning and not a reason to hide every later plugin (D65).
          */
         if (!have_section) {
-            list->config_invalid = 1;
+            if (tai_path_valid(line, (int)len))
+                list->config_invalid = 1;
             continue;
         }
 
+        if (!tai_path_valid(line, (int)len))
+            continue;
+
         char path[PLUGIN_PATH_MAX];
-        if (len >= sizeof(path))
+        if (len >= sizeof(path)) {
+            list->config_truncated = 1;
             continue; /* too long: a truncated path names a different file */
+        }
 
         memcpy(path, line, len);
         path[len] = '\0';
-
-        if (!tai_is_plugin_path(path))
-            continue;
 
         int before = list->count;
         add_plugin(list, path, section);
@@ -373,10 +377,15 @@ void plugins_scan(void)
      * opened. A readable empty ux0: file is still the active config, and a
      * too-large file is active but unreadable; neither falls through to ur0:.
      */
+    int saw_unreadable = 0;
+
     for (int i = 0; i < CONFIG_COUNT; ++i) {
         int n = 0;
         PlatformReadStatus status = platform_read_config(
             CONFIGS[i], buf, (int)sizeof(buf), &n);
+
+        if (status == PLATFORM_READ_UNREADABLE)
+            saw_unreadable = 1;
 
         if (status == PLATFORM_READ_OK) {
             g_plugins.config_found = 1;
@@ -391,14 +400,13 @@ void plugins_scan(void)
         }
     }
 
+    if (!g_plugins.config_found && saw_unreadable)
+        g_plugins.config_unreadable = 1;
+
     /*
-     * A config with a path before the first section is invalid. taiHEN does not
-     * load a partial list, so HOME shows no counts rather than a subset.
+     * A path before the first section is a warning, not a reason to hide the
+     * rest of the file. The valid entries still describe what the boot loads.
      */
-    if (g_plugins.config_invalid) {
-        g_plugins.count = 0;
-        g_plugins.truncated = 0;
-    }
 
     /*
      * Keep only what is actually on disk. A path listed in config.txt whose

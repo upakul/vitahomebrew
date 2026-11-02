@@ -207,8 +207,8 @@ from the console. Cyberpunk 2077 HUD as the visual reference.
 
 ### Status
 
-**Hardware-verified at b13; b28 is built and host-tested, pending the tabbed
-check.** Runs on the 3.65 console: every panel renders, and `ux0:` reads
+**Hardware-verified at b13; b34 is built and host-tested, pending the fixed
+tabbed check.** Runs on the 3.65 console: every panel renders, and `ux0:` reads
 `17.7/119.3 GB` through `sceAppMgrGetDevInfo`. The shipped build is `UNSAFE` by
 default (D42) because `uma0:` capacity needs `sceIoDevctl`, which the safe authid
 refuses; `./build.sh --safe` still builds the restricted variant. `uma0:` reads
@@ -217,10 +217,14 @@ refuses; `./build.sh --safe` still builds the restricted variant. `uma0:` reads
 PLUGINS resolves the active config the way taiHEN does (D55), lists every path
 active or commented, and groups by load target — KERNEL, SYSTEM, SYSTEM APPS,
 ALL TITLES, TITLES. One row per unique full path; a duplicate basename shows the
-full path. `henkaku.suprx` and the three boot modules are locked; the DRM,
-storage, and other load-bearing plugins warn before a change (D58). Each session
-rotates three backups before reading the config (D57), and a change is written
-transactionally for the next boot.
+full path. Every row has a status badge (`ACTIVATED`, `DISABLED`, `MISSING`,
+`PARTIAL`, `NOT REACHED`, `BOOT`) and an action control that is greyed when the
+action is impossible (D66). A missing active file can be disabled; a missing
+inactive file cannot be enabled. `henkaku.suprx` and the three boot modules are
+locked; the DRM, storage, and other load-bearing plugins warn before a change
+(D58). The active config gets `config.txt.original` once and
+`config.txt.session` every launch (D61); `boot_config.txt` is never opened,
+read, or backed up. A write is a verified rename-away swap (D64).
 
 The route here was three hardware faults, each fixed by evidence rather than
 guesswork:
@@ -241,14 +245,14 @@ guesswork:
 
 | Path | What |
 |---|---|
-| `src/core/` | `platform.h` (the port), `metrics` (policy), `history` (ring), `plugins` (launch set + catalog), `plugin_editor` (line model, backups, toggle), `input` (edges and repeats) |
+| `src/core/` | `platform.h` (the port), `metrics` (policy), `history` (ring), `plugins` (launch set + catalog), `tai_config.h` (shared grammar), `plugin_editor` (line model, two snapshots, toggle), `input` (edges and repeats) |
 | `src/platform/` | `platform_psp2.c`, the only SDK sampling and file adapter |
 | `src/gfx/` | `draw` (vita2d adapter), `font` (5×7 face), `theme` (palette, chrome, meters, traces) |
 | `src/panels/` | `core`, `storage`, `power`, `system`, `plugins` (the ledger), `frame`, plus `registry.c` with the home layout table |
 | `src/ui/` | `header`, `tabbar` (tabs and summary), `modal` |
 | `src/app/` | lifecycle, frame loop, `UiState`, and `screen_draw` |
 | `tools/fake/` | shared mutable port double |
-| `tools/test/` | host tests for the sampling policy |
+| `tools/test/` | host tests for the sampling policy, config model, snapshots, write transaction, and input |
 | `tools/preview/` | host renderer: draws the real screen to PNG without a Vita |
 
 ### Build
@@ -258,15 +262,15 @@ cd vita-cockpit
 ./build.sh
 ```
 
-Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b28.vpk`).
+Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b34.vpk`).
 `build.sh` counts distinct builds in `BUILD_NUMBER`: unchanged sources reuse the
 number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-ip>`.
 
 ### Test and preview without hardware
 
 ```sh
-./tools/test/run.sh      # 191 assertions over the sampling policy, plugin editor, backups, and input
-./tools/preview/run.sh   # nine PNG states, with a draw-call budget
+./tools/test/run.sh      # 314 assertions over the sampling policy, plugin editor, snapshots, write transaction, and input
+./tools/preview/run.sh   # 13 PNG states, with a 6,500 draw-call budget
 ```
 
 ### Preview without hardware
@@ -276,7 +280,7 @@ cd vita-cockpit
 ./tools/preview/run.sh
 ```
 
-Writes nine `build/preview/preview-*.png` states (the authoritative list is in `vita-cockpit/README.md`). It links the shipped
+Writes 13 `build/preview/preview-*.png` states (the authoritative list is in `vita-cockpit/README.md`). It links the shipped
 composition (`app/screen.c`), the real `theme`, `font`, `panels`, `header`, and
 `core`, a software vita2d shim, and the shared fake platform in `tools/fake/`.
 Each scene is produced by driving the fake port through `metrics_sample_slow()`,

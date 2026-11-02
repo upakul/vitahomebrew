@@ -59,7 +59,7 @@ constructs and starts.
 | `core/metrics` | convert raw readings, maintain history, decide alerts | `core/*` |
 | `core/plugins` | parse the launch config, group by load target, resolve the activated set | `core/*` |
 | `core/tai_config.h` | shared taiHEN grammar: suffixes, section names, path keys | `core/plugins.h` |
-| `core/plugin_editor` | byte-preserving config model, rows, backups, toggle plan | `core/*` |
+| `core/plugin_editor` | byte-preserving config model, rows, two snapshots, toggle plan | `core/*` |
 | `core/input` | pad edges and repeats, no SDK types | libc |
 | `platform/platform_psp2` | implement the port against the SDK | `psp2/*`, `core/platform.h` |
 | `gfx/layout` | screen geometry constants shared by `panels/` and `ui/` | nothing |
@@ -67,7 +67,7 @@ constructs and starts.
 | `gfx/font` | 5×7 glyph table, text layout, glyph-rect enumeration | `gfx/draw` |
 | `gfx/theme` | palette, panel chrome, meters, traces, formatters | `gfx/*`, `core/history` |
 | `panels/*` | one panel each; draw one region | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout` |
-| `panels/plugins` | the PLUGINS ledger, selection, orphans, and its geometry | `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
+| `panels/plugins` | the PLUGINS ledger, badges, controls, selection, orphans, and its geometry | `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
 | `ui/header` | wordmark, clock, tabs, summary, hazard band | `core/metrics`, `gfx/theme`, `gfx/font`, `gfx/layout`, `ui/tabbar` |
 | `ui/ui_state` | navigation state: tab, two scrolls, selection, modal | nothing |
 | `ui/tabbar` | tab labels and the HOME/PLUGINS summary | `core/plugins`, `core/plugin_editor`, `gfx/*`, `ui/ui_state` |
@@ -130,18 +130,24 @@ typedef enum {
 PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
                                         int *out_len);
 int platform_write_config(const char *path, const char *text, int len);
-int platform_backup_rotate(const char *path);
+int platform_backup_config(const char *path, const char *text, int len,
+                           int *original_ok, int *session_ok);
 
 typedef void (*PlatformDirCallback)(const char *name, int is_dir, void *user);
 int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user);
 ```
 
 The config calls stay in the same adapter because every SDK file operation
-belongs to one module (D7). `platform_read_config` distinguishes absent, empty,
-too-large, and unreadable; `platform_write_config` writes a verified sibling and
-renames it; `platform_backup_rotate` owns the three-deep session snapshot; and
+belongs to one module (D7). `platform_read_config` opens first and distinguishes
+absent, empty, too-large, and unreadable; a short read is unreadable.
+`platform_write_config` writes a verified sibling, moves the original aside,
+moves the sibling into place, and reads the live file back. `platform_backup_config`
+writes `config.txt.original` once and `config.txt.session` every launch.
 `platform_list_dir` feeds the orphan section without exposing `SceUID` or
 `SceIoDirent`.
+
+`ur0:tai/boot_config.txt` is deliberately outside the port. The app never opens
+it; the three well-known boot module names are locked by name (D61).
 
 Why a port rather than calling the SDK from `core/metrics`:
 
@@ -219,7 +225,9 @@ draw. Sampling is the only writer.
 | Its results are byte counts | `[C]` the unit is documented nowhere | `platform_psp2.c` |
 | Model codes `SCE_KERNEL_MODEL_VITA` / `SCE_KERNEL_MODEL_VITATV` | `[V]` `psp2common/kernel/sysmem.h` | `platform_psp2.c` |
 | `sceKernelGetModel()` cannot separate PCH-1000 from PCH-2000 | `[V]` one code for both | `platform_psp2.c` |
-| `sceIoRename` replaces an existing file | `[C]` not exercised by the fake; unverified on the target | `platform_psp2.c` |
+| `sceIoRename` to an absent target | `[C]` the fake exercises the transaction; the SDK call is not run on hardware | `platform_psp2.c` |
+| Replacing the live config without rename-over | `[C]` the rename-away swap is implemented; the target's rename semantics are unverified | `platform_psp2.c` |
+| `boot_config.txt` is never opened | `[V]` no source path names it | `core/plugin_editor.c` |
 | No userland CPU-load API exists | `[V]` absent from `psp2/` | — |
 
 Two claims in this table were wrong when first written, both in the same
@@ -231,8 +239,10 @@ direction — marking as community knowledge something the SDK declares:
   `SCE_KERNEL_MODEL_VITATV` in `psp2common/kernel/sysmem.h`, reached through the
   `psp2/kernel/sysmem.h` include the adapter already had.
 
-Only two claims remain `[C]`: the devctl byte unit, and whether `sceIoRename`
-replaces an existing config on the target.
+Only two claims remain `[C]`: the devctl byte unit, and the target's
+`sceIoRename`/replace semantics. The read path no longer depends on
+`sceIoGetstat` succeeding before `sceIoOpen`, and the normal write path no longer
+renames over an existing file.
 
 If a `[C]` claim is corrected on hardware, only `platform_psp2.c` changes.
 

@@ -230,11 +230,12 @@ static const char SAMPLE_CONFIG[] =
     "*ALL\n"
     "ur0:tai/vita3g-disable.suprx\n";
 
+/* Present so tests can prove the app never opens or copies it. */
 static const char SAMPLE_BOOT[] =
     "- load\tur0:tai/taihen.skprx\n"
     "- load\tur0:tai/henkaku.skprx\n";
 
-#define FAKE_FILES 16
+#define FAKE_FILES 64
 #define FAKE_FILE_MAX 32768
 
 typedef struct {
@@ -248,6 +249,7 @@ static FakeFile s_files[FAKE_FILES];
 static int s_fail_write;
 static int s_fail_backup;
 static int s_fail_read;
+static int s_fail_rename;
 
 static FakeFile *find_file(const char *path)
 {
@@ -272,11 +274,19 @@ static FakeFile *make_file(const char *path)
             s_files[i].used = 1;
             snprintf(s_files[i].path, sizeof(s_files[i].path), "%s", path);
             s_files[i].len = 0;
+            s_files[i].data[0] = '\0';
             return &s_files[i];
         }
     }
 
     return NULL;
+}
+
+static void remove_file(const char *path)
+{
+    FakeFile *f = find_file(path);
+    if (f != NULL)
+        f->used = 0;
 }
 
 static void add_file(const char *path, const char *text)
@@ -300,6 +310,7 @@ static void files_reset(void)
     s_fail_write = 0;
     s_fail_backup = 0;
     s_fail_read = 0;
+    s_fail_rename = 0;
 
     add_file("ur0:tai/config.txt", SAMPLE_CONFIG);
     add_file("ur0:tai/boot_config.txt", SAMPLE_BOOT);
@@ -323,9 +334,7 @@ void fake_add_file(const char *path, const char *text)
 
 void fake_remove_file(const char *path)
 {
-    FakeFile *f = find_file(path);
-    if (f != NULL)
-        f->used = 0;
+    remove_file(path);
 }
 
 void fake_fail_write(int on)
@@ -341,6 +350,11 @@ void fake_fail_backup(int on)
 void fake_fail_read(int on)
 {
     s_fail_read = on;
+}
+
+void fake_fail_rename(int on)
+{
+    s_fail_rename = on;
 }
 
 PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
@@ -365,62 +379,142 @@ PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
     return PLATFORM_READ_OK;
 }
 
+static int verify_bytes(const char *path, const char *text, int len)
+{
+    FakeFile *f = find_file(path);
+
+    if (f == NULL || f->len != len)
+        return -1;
+    if (len > 0 && memcmp(f->data, text, (size_t)len) != 0)
+        return -1;
+
+    return 0;
+}
+
+static int rename_file(const char *src, const char *dst)
+{
+    FakeFile *from = find_file(src);
+    if (from == NULL)
+        return -1;
+
+    /*
+     * The fake models the one failure that matters: the final move of the
+     * verified .new file into place. The move-aside is allowed so the test can
+     * exercise the restore path.
+     */
+    if (s_fail_rename && strstr(src, ".new") != NULL)
+        return -1;
+
+    FakeFile *to = find_file(dst);
+    if (to == NULL)
+        to = make_file(dst);
+    if (to == NULL)
+        return -1;
+
+    int len = from->len;
+    if (len >= FAKE_FILE_MAX)
+        return -1;
+
+    memcpy(to->data, from->data, (size_t)len);
+    to->data[len] = '\0';
+    to->len = len;
+    from->used = 0;
+    return 0;
+}
+
 int platform_write_config(const char *path, const char *text, int len)
 {
     if (path == NULL || text == NULL || len < 0 || s_fail_write)
         return -1;
 
-    FakeFile *f = find_file(path);
-    if (f == NULL)
-        f = make_file(path);
+    char tmp[128];
+    char old[128];
+
+    if (snprintf(tmp, sizeof(tmp), "%s.new", path) >= (int)sizeof(tmp) ||
+        snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old))
+        return -1;
+
+    remove_file(tmp);
+
+    if (find_file(old) != NULL)
+        remove_file(old);
+
+    FakeFile *f = make_file(tmp);
     if (f == NULL || len >= FAKE_FILE_MAX)
         return -1;
 
     memcpy(f->data, text, (size_t)len);
     f->data[len] = '\0';
     f->len = len;
+
+    if (verify_bytes(tmp, text, len) != 0) {
+        remove_file(tmp);
+        return -1;
+    }
+
+    int had_original = find_file(path) != NULL;
+
+    if (had_original && rename_file(path, old) != 0) {
+        remove_file(tmp);
+        return -1;
+    }
+
+    if (rename_file(tmp, path) != 0) {
+        if (had_original)
+            (void)rename_file(old, path);
+        remove_file(tmp);
+        return -1;
+    }
+
+    if (verify_bytes(path, text, len) != 0) {
+        if (had_original)
+            (void)rename_file(old, path);
+        else
+            remove_file(path);
+        return -1;
+    }
+
+    if (had_original)
+        remove_file(old);
+
     return 0;
 }
 
-static int copy_file(const char *src, const char *dst)
+int platform_backup_config(const char *path, const char *text, int len,
+                           int *original_ok, int *session_ok)
 {
-    FakeFile *from = find_file(src);
-    if (from == NULL)
-        return 0;
+    int have_original = 1;
+    int have_session = 1;
 
-    FakeFile *to = find_file(dst);
-    if (to == NULL)
-        to = make_file(dst);
-    if (to == NULL || from->len >= FAKE_FILE_MAX)
+    if (original_ok != NULL)
+        *original_ok = 0;
+    if (session_ok != NULL)
+        *session_ok = 0;
+
+    if (path == NULL || text == NULL || len < 0 || find_file(path) == NULL)
         return -1;
 
-    memcpy(to->data, from->data, (size_t)from->len);
-    to->data[from->len] = '\0';
-    to->len = from->len;
-    return 0;
-}
-
-int platform_backup_rotate(const char *path)
-{
-    if (path == NULL || find_file(path) == NULL)
-        return 0;
     if (s_fail_backup)
         return -1;
 
-    char bak[128];
-    char one[128];
-    char two[128];
+    char dst[128];
 
-    snprintf(bak, sizeof(bak), "%s.bak", path);
-    snprintf(one, sizeof(one), "%s.1.bak", path);
-    snprintf(two, sizeof(two), "%s.2.bak", path);
+    if (snprintf(dst, sizeof(dst), "%s.original", path) >= (int)sizeof(dst))
+        have_original = 0;
+    else if (find_file(dst) == NULL)
+        have_original = platform_write_config(dst, text, len) == 0;
 
-    if (find_file(one) != NULL && copy_file(one, two) != 0)
-        return -1;
-    if (find_file(bak) != NULL && copy_file(bak, one) != 0)
-        return -1;
+    if (snprintf(dst, sizeof(dst), "%s.session", path) >= (int)sizeof(dst))
+        have_session = 0;
+    else
+        have_session = platform_write_config(dst, text, len) == 0;
 
-    return copy_file(path, bak);
+    if (original_ok != NULL)
+        *original_ok = have_original;
+    if (session_ok != NULL)
+        *session_ok = have_session;
+
+    return (have_original && have_session) ? 0 : -1;
 }
 
 int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)

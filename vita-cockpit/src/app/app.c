@@ -30,6 +30,7 @@
 #define STICK_HIGH 185
 
 #define HOME_SCROLL_STEP 60.0f
+#define PLUGINS_SCROLL_STEP 40.0f
 
 static int clamp_int(int value, int low, int high)
 {
@@ -42,7 +43,7 @@ static int clamp_int(int value, int low, int high)
 
 static void keep_selection_visible(UiState *ui)
 {
-    if (ui->selection < 0)
+    if (ui->selection < 0 || ui->selection >= g_editor.row_count)
         return;
 
     int y = plugins_row_y(ui->selection);
@@ -71,27 +72,66 @@ static void move_selection(UiState *ui, int direction)
         return;
     }
 
+    /*
+     * Every row is selectable, including a locked or missing one. The old loop
+     * skipped non-actionable rows, so the user could not even put the cursor on
+     * a missing plugin to read why its control was greyed.
+     */
     int next = ui->selection < 0 ? 0 : ui->selection + direction;
 
-    while (next >= 0 && next < g_editor.row_count &&
-           !editor_row_actionable(next))
-        next += direction;
-
-    if (next < 0 || next >= g_editor.row_count)
-        return;
+    if (next < 0)
+        next = 0;
+    if (next >= g_editor.row_count)
+        next = g_editor.row_count - 1;
 
     ui->selection = next;
     keep_selection_visible(ui);
 }
 
+static void scroll_plugins(UiState *ui, float delta)
+{
+    ui->plugins_scroll += delta;
+
+    int max = plugins_max_scroll();
+    if (ui->plugins_scroll < 0.0f)
+        ui->plugins_scroll = 0.0f;
+    if (ui->plugins_scroll > (float)max)
+        ui->plugins_scroll = (float)max;
+}
+
+static int selection_visible(const UiState *ui)
+{
+    if (ui->selection < 0 || ui->selection >= g_editor.row_count)
+        return 0;
+
+    int y = plugins_row_y(ui->selection);
+    int screen_y =
+        VIEW_Y + VIEW_TOP_GAP - (int)ui->plugins_scroll + y;
+
+    return screen_y + (int)PLUGINS_ROW_STRIDE > VIEW_Y &&
+           screen_y < VIEW_Y + VIEW_H;
+}
+
 static void open_toggle_modal(UiState *ui)
 {
-    if (ui->selection < 0)
+    if (ui->selection < 0 || ui->selection >= g_editor.row_count)
         return;
 
-    int mode = editor_next_action(ui->selection);
-    if (mode < 0)
+    /*
+     * Scrolling past the last row reveals the orphan section. Cross must not
+     * act on a row whose control is no longer on screen; bring it back first.
+     */
+    if (!selection_visible(ui)) {
+        keep_selection_visible(ui);
         return;
+    }
+
+    int mode = editor_next_action(ui->selection);
+    if (mode < 0) {
+        const char *reason = editor_action_reason(ui->selection);
+        modal_open_info(ui, reason != NULL ? reason : "THIS ROW HAS NO ACTION.");
+        return;
+    }
 
     const char *message = editor_confirm_text(ui->selection, mode);
     int kernel_enable =
@@ -118,6 +158,14 @@ static void open_toggle_modal(UiState *ui)
     }
 
     modal_open_confirm(ui, ui->selection, mode, body);
+
+    /*
+     * Name the action and the file in the title. A generic "CONFIRM CHANGE"
+     * left the user to guess which row the destructive message belonged to.
+     */
+    snprintf(ui->modal_title, sizeof(ui->modal_title), "%s %s",
+             mode == 1 ? "ENABLE" : "DISABLE",
+             g_editor.rows[ui->selection].name);
 }
 
 static void handle_modal(UiState *ui, InputEvent event)
@@ -130,7 +178,7 @@ static void handle_modal(UiState *ui, InputEvent event)
     if (event != INPUT_ACCEPT)
         return;
 
-    if (ui->modal == UI_MODAL_ERROR) {
+    if (ui->modal == UI_MODAL_ERROR || ui->modal == UI_MODAL_INFO) {
         ui->modal = UI_MODAL_NONE;
         return;
     }
@@ -171,8 +219,8 @@ static void handle_event(UiState *ui, InputEvent event)
     case INPUT_TAB_RIGHT:
         ui->tab = ui->tab == UI_TAB_HOME ? UI_TAB_PLUGINS : UI_TAB_HOME;
         if (ui->tab == UI_TAB_PLUGINS) {
-            if (ui->selection < 0)
-                ui->selection = editor_nearest_actionable(0);
+            if (ui->selection < 0 && g_editor.row_count > 0)
+                ui->selection = 0;
             keep_selection_visible(ui);
         }
         break;
@@ -184,6 +232,17 @@ static void handle_event(UiState *ui, InputEvent event)
             ui->home_scroll += event == INPUT_UP ? -HOME_SCROLL_STEP
                                                  : HOME_SCROLL_STEP;
             ui->home_scroll = (float)clamp_int((int)ui->home_scroll, 0, max);
+        } else if (g_editor.row_count == 0 ||
+                   (event == INPUT_DOWN &&
+                    ui->selection >= g_editor.row_count - 1) ||
+                   (event == INPUT_UP && ui->selection <= 0)) {
+            /*
+             * At the end of the list the cursor stops, but the orphan section
+             * can be below the last row. A further press scrolls the canvas so
+             * the installed-but-unlisted files stay reachable.
+             */
+            scroll_plugins(ui, event == INPUT_UP ? -PLUGINS_SCROLL_STEP
+                                                 : PLUGINS_SCROLL_STEP);
         } else {
             move_selection(ui, event == INPUT_UP ? -1 : 1);
         }
@@ -214,7 +273,7 @@ int app_run(void)
     UiState ui;
     memset(&ui, 0, sizeof(ui));
     ui.tab = UI_TAB_HOME;
-    ui.selection = editor_nearest_actionable(0);
+    ui.selection = g_editor.row_count > 0 ? 0 : -1;
     ui.modal = UI_MODAL_NONE;
 
     InputState input;

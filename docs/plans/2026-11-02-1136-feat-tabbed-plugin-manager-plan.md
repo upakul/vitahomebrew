@@ -10,6 +10,12 @@ execution: code
 
 # Tabbed Plugin Manager - Plan
 
+> **Partly superseded 2026-11-02.** The backup model (R33-R34), the three-state
+> toggle (R12), and the summary placement (R4-R6) were replaced after the first
+> hardware report. See `DECISIONS.md` D61-D66 and
+> `2026-11-02-1430-fix-plugin-manager-regressions-plan.md`. This document stays
+> as the record of the original design.
+
 ## Goal Capsule
 
 - **Objective:** The console owner can read the machine on a dashboard that stays one screen, and change which taiHEN plugins load without leaving the console, while every displayed number still describes what the boot's config activated.

@@ -205,6 +205,8 @@ static void test_frame_floor(void)
 }
 
 /* tai config parsing: "listed" and "loaded" are different questions. */
+static int section_of(const PluginList *list, const char *name);
+
 static void test_plugins_parse(void)
 {
     static const char CFG[] = "# comment\n"
@@ -284,11 +286,34 @@ static void test_plugins_parse(void)
     CHECK(halt.count == 1);
     CHECK(halt.config_invalid == 0);
 
-    /* A path before the first section makes the whole config invalid. */
+    /* A path before the first section is a warning, not a lock: the later
+     * valid entries are still parsed. */
     PluginList invalid;
     memset(&invalid, 0, sizeof(invalid));
     plugins_parse("ur0:tai/a.skprx\n*KERNEL\nur0:tai/b.skprx\n", &invalid);
     CHECK(invalid.config_invalid == 1);
+    CHECK(invalid.count == 1);
+    CHECK(section_of(&invalid, "b.skprx") == PLUGIN_SECTION_KERNEL);
+
+    /* A BOM before the first header must not hide the section. */
+    PluginList bom;
+    memset(&bom, 0, sizeof(bom));
+    plugins_parse("\xEF\xBB\xBF*KERNEL\nur0:tai/a.skprx\n", &bom);
+    CHECK(bom.config_invalid == 0);
+    CHECK(bom.count == 1);
+
+    /* Suffixes are case-insensitive, as the Vita filesystem is. */
+    PluginList upper;
+    memset(&upper, 0, sizeof(upper));
+    plugins_parse("*KERNEL\nur0:tai/A.SKPRX\n", &upper);
+    CHECK(upper.count == 1);
+
+    /* A prose comment ending in a plugin suffix is not a plugin line. */
+    PluginList prose;
+    memset(&prose, 0, sizeof(prose));
+    plugins_parse("# see kubridge.skprx for the bridge\n*KERNEL\n"
+                  "ur0:tai/kubridge.skprx\n", &prose);
+    CHECK(prose.count == 1);
 }
 
 /* The section a named plugin was filed under, or -1 when it is absent. */
@@ -428,6 +453,65 @@ static void test_plugins_truncation(void)
     CHECK(full.truncated == 0);
 }
 
+static void test_plugins_scan(void)
+{
+    fake_reset();
+    fake_add_file("ur0:tai/config.txt",
+                  "ur0:tai/stray.skprx\n*KERNEL\nur0:tai/kubridge.skprx\n"
+                  "#ur0:tai/0syscall6.skprx\nur0:tai/absent.skprx\n"
+                  "*!ALL\nur0:tai/extra.skprx\n");
+    plugins_scan();
+
+    CHECK(g_plugins.config_found == 1);
+    CHECK(g_plugins.config_invalid == 1);
+    CHECK(g_plugins.count == 1);
+    CHECK(strcmp(g_plugins.items[0].path, "ur0:tai/kubridge.skprx") == 0);
+
+    fake_reset();
+    fake_add_file("ur0:tai/config.txt",
+                  "\xEF\xBB\xBF*KERNEL\nur0:tai/kubridge.skprx\n");
+    plugins_scan();
+    CHECK(g_plugins.config_invalid == 0);
+    CHECK(g_plugins.count == 1);
+
+    fake_reset();
+    fake_remove_file("ur0:tai/config.txt");
+    plugins_scan();
+    CHECK(g_plugins.config_found == 0);
+    CHECK(g_plugins.count == 0);
+
+    fake_reset();
+    fake_add_file("ux0:tai/config.txt", "");
+    plugins_scan();
+    CHECK(g_plugins.config_found == 1);
+    CHECK(g_plugins.count == 0);
+
+    fake_reset();
+    fake_fail_read(1);
+    plugins_scan();
+    CHECK(g_plugins.config_found == 0);
+    CHECK(g_plugins.config_unreadable == 1);
+    fake_fail_read(0);
+}
+
+static void test_plugins_path_truncation(void)
+{
+    char path[128];
+    char cfg[160];
+    PluginList list;
+
+    memset(path, 'a', sizeof(path) - 8);
+    memcpy(path + sizeof(path) - 8, ".skprx", 7);
+    path[sizeof(path) - 1] = '\0';
+
+    snprintf(cfg, sizeof(cfg), "*KERNEL\n%s\n", path);
+    memset(&list, 0, sizeof(list));
+    plugins_parse(cfg, &list);
+
+    CHECK(list.count == 0);
+    CHECK(list.config_truncated == 1);
+}
+
 int main(void)
 {
     test_alert_policy();
@@ -442,6 +526,8 @@ int main(void)
     test_plugins_capacity();
     test_plugins_long_name();
     test_plugins_truncation();
+    test_plugins_scan();
+    test_plugins_path_truncation();
 
     printf("%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

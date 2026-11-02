@@ -257,7 +257,21 @@ int platform_file_exists(const char *path)
     SceIoStat st;
     memset(&st, 0, sizeof(st));
 
-    return sceIoGetstat(path, &st) >= 0;
+    if (sceIoGetstat(path, &st) < 0) {
+        /*
+         * A stat-only failure must not turn an existing plugin into MISSING.
+         * If the file can be opened, it exists; the row's status is about the
+         * file, not about the metadata call.
+         */
+        SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+        if (fd < 0)
+            return 0;
+
+        (void)sceIoClose(fd);
+        return 1;
+    }
+
+    return SCE_SO_ISDIR(st.st_mode) ? 0 : 1;
 }
 
 PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
@@ -266,42 +280,105 @@ PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
     if (path == NULL || buf == NULL || cap <= 1)
         return PLATFORM_READ_UNREADABLE;
 
+    /*
+     * Open first. The previous version required sceIoGetstat to succeed before
+     * it would open, so a stat-only failure looked like a missing config. The
+     * file is what matters; the stat is only used to classify an open failure
+     * and to catch a directory or a short read.
+     */
+    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (fd < 0) {
+        SceIoStat st;
+        memset(&st, 0, sizeof(st));
+
+        if (sceIoGetstat(path, &st) < 0)
+            return PLATFORM_READ_ABSENT;
+
+        return PLATFORM_READ_UNREADABLE;
+    }
+
     SceIoStat st;
     memset(&st, 0, sizeof(st));
+    int have_stat = sceIoGetstat(path, &st) >= 0;
 
-    if (sceIoGetstat(path, &st) < 0)
-        return PLATFORM_READ_ABSENT;
-    if (st.st_size >= cap)
-        return PLATFORM_READ_TOO_LARGE;
-
-    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
-    if (fd < 0)
+    if (have_stat && SCE_SO_ISDIR(st.st_mode)) {
+        (void)sceIoClose(fd);
         return PLATFORM_READ_UNREADABLE;
+    }
 
-    int n = sceIoRead(fd, buf, (SceSize)(cap - 1));
+    int total = 0;
+
+    for (;;) {
+        if (total >= cap) {
+            (void)sceIoClose(fd);
+            return PLATFORM_READ_TOO_LARGE;
+        }
+
+        int n = sceIoRead(fd, buf + total, (SceSize)(cap - total));
+        if (n < 0) {
+            (void)sceIoClose(fd);
+            return PLATFORM_READ_UNREADABLE;
+        }
+        if (n == 0)
+            break;
+
+        total += n;
+    }
+
     (void)sceIoClose(fd);
 
-    if (n < 0)
+    /*
+     * A short read is not a smaller config: the parser would edit the prefix
+     * and the rewrite would delete the tail. The stat size is the only external
+     * check available; when it says more bytes were expected, refuse the read.
+     * A zero or smaller size is treated as unknown, not as proof.
+     */
+    if (have_stat && st.st_size > 0 && (SceOff)total < st.st_size)
         return PLATFORM_READ_UNREADABLE;
 
-    buf[n] = '\0';
+    buf[total] = '\0';
     if (out_len != NULL)
-        *out_len = n;
+        *out_len = total;
 
     return PLATFORM_READ_OK;
 }
 
+static int verify_bytes(const char *path, const char *text, int len)
+{
+    static char check[PLATFORM_CONFIG_MAX];
+    int checked = 0;
+
+    if (platform_read_config(path, check, (int)sizeof(check), &checked) !=
+        PLATFORM_READ_OK)
+        return -1;
+    if (checked != len || memcmp(check, text, (size_t)len) != 0)
+        return -1;
+
+    return 0;
+}
+
 int platform_write_config(const char *path, const char *text, int len)
 {
-    if (path == NULL || text == NULL || len < 0)
+    if (path == NULL || text == NULL || len < 0 ||
+        len >= PLATFORM_CONFIG_MAX)
         return -1;
 
     char tmp[PLATFORM_PATH_MAX];
-    int n = snprintf(tmp, sizeof(tmp), "%s.new", path);
-    if (n <= 0 || n >= (int)sizeof(tmp))
+    char old[PLATFORM_PATH_MAX];
+
+    if (snprintf(tmp, sizeof(tmp), "%s.new", path) >= (int)sizeof(tmp) ||
+        snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old))
         return -1;
 
     (void)sceIoRemove(tmp);
+
+    /*
+     * A stale .old means an earlier swap was interrupted. It is the previous
+     * config, so it must not be overwritten silently; remove it first and fail
+     * closed if it cannot be removed.
+     */
+    if (platform_file_exists(old) && sceIoRemove(old) < 0)
+        return -1;
 
     SceUID fd = sceIoOpen(tmp, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_EXCL, 0666);
     if (fd < 0)
@@ -323,60 +400,91 @@ int platform_write_config(const char *path, const char *text, int len)
         return -1;
     }
 
-    static char check[PLATFORM_CONFIG_MAX];
-    int checked = 0;
-    if (platform_read_config(tmp, check, (int)sizeof(check), &checked) !=
-            PLATFORM_READ_OK ||
-        checked != len || memcmp(check, text, (size_t)len) != 0) {
+    if (verify_bytes(tmp, text, len) != 0) {
         (void)sceIoRemove(tmp);
         return -1;
     }
 
-    /* [C] rename-over-existing is community-reported and not verified on the
-     * target. If it is refused, the original and the verified backup remain. */
-    if (sceIoRename(tmp, path) < 0) {
+    int had_original = platform_file_exists(path);
+
+    /*
+     * Rename-away instead of rename-over. The old file is moved to an absent
+     * name, the verified sibling takes its place, and the live file is read
+     * back. This does not depend on the filesystem replacing an existing target.
+     */
+    if (had_original && sceIoRename(path, old) < 0) {
         (void)sceIoRemove(tmp);
         return -1;
     }
+
+    if (sceIoRename(tmp, path) < 0) {
+        if (had_original)
+            (void)sceIoRename(old, path);
+        (void)sceIoRemove(tmp);
+        return -1;
+    }
+
+    if (verify_bytes(path, text, len) != 0) {
+        /*
+         * The replacement was observed to be wrong. Put the original back if
+         * possible; if the rename is refused, leave both files for manual
+         * recovery rather than deleting the only remaining config.
+         */
+        if (had_original && sceIoRename(old, path) < 0)
+            return -1;
+
+        if (!had_original)
+            (void)sceIoRemove(path);
+
+        return -1;
+    }
+
+    if (had_original)
+        (void)sceIoRemove(old);
 
     return 0;
 }
 
-static int copy_file(const char *src, const char *dst)
+int platform_backup_config(const char *path, const char *text, int len,
+                           int *original_ok, int *session_ok)
 {
-    static char buf[PLATFORM_CONFIG_MAX];
-    int n = 0;
+    int have_original = 1;
+    int have_session = 1;
 
-    PlatformReadStatus status = platform_read_config(src, buf,
-                                                     (int)sizeof(buf), &n);
-    if (status == PLATFORM_READ_ABSENT)
-        return 0;
-    if (status != PLATFORM_READ_OK)
+    if (original_ok != NULL)
+        *original_ok = 0;
+    if (session_ok != NULL)
+        *session_ok = 0;
+
+    if (path == NULL || text == NULL || len < 0)
         return -1;
 
-    return platform_write_config(dst, buf, n);
-}
-
-int platform_backup_rotate(const char *path)
-{
-    if (path == NULL || !platform_file_exists(path))
-        return 0;
-
-    char bak[PLATFORM_PATH_MAX];
-    char one[PLATFORM_PATH_MAX];
-    char two[PLATFORM_PATH_MAX];
-
-    if (snprintf(bak, sizeof(bak), "%s.bak", path) >= (int)sizeof(bak) ||
-        snprintf(one, sizeof(one), "%s.1.bak", path) >= (int)sizeof(one) ||
-        snprintf(two, sizeof(two), "%s.2.bak", path) >= (int)sizeof(two))
+    /*
+     * The caller only calls this after a successful read, so a missing source
+     * means the file disappeared between read and snapshot. Treat both
+     * snapshots as unavailable rather than writing stale bytes.
+     */
+    if (!platform_file_exists(path))
         return -1;
 
-    if (platform_file_exists(one) && copy_file(one, two) != 0)
-        return -1;
-    if (platform_file_exists(bak) && copy_file(bak, one) != 0)
-        return -1;
+    char dst[PLATFORM_PATH_MAX];
 
-    return copy_file(path, bak);
+    if (snprintf(dst, sizeof(dst), "%s.original", path) >= (int)sizeof(dst))
+        have_original = 0;
+    else if (!platform_file_exists(dst))
+        have_original = platform_write_config(dst, text, len) == 0;
+
+    if (snprintf(dst, sizeof(dst), "%s.session", path) >= (int)sizeof(dst))
+        have_session = 0;
+    else
+        have_session = platform_write_config(dst, text, len) == 0;
+
+    if (original_ok != NULL)
+        *original_ok = have_original;
+    if (session_ok != NULL)
+        *session_ok = have_session;
+
+    return (have_original && have_session) ? 0 : -1;
 }
 
 int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)
@@ -385,8 +493,20 @@ int platform_list_dir(const char *dirname, PlatformDirCallback cb, void *user)
         return -1;
 
     SceUID dfd = sceIoDopen(dirname);
-    if (dfd < 0)
-        return -1;
+    if (dfd < 0) {
+        /*
+         * A tai directory that does not exist is normal (most consoles have
+         * only one of ur0:tai and ux0:tai). An existing directory that cannot
+         * be opened is a real error and must stay visible.
+         */
+        SceIoStat st;
+        memset(&st, 0, sizeof(st));
+
+        if (sceIoGetstat(dirname, &st) >= 0 && SCE_SO_ISDIR(st.st_mode))
+            return -1;
+
+        return 0;
+    }
 
     int count = 0;
     SceIoDirent entry;

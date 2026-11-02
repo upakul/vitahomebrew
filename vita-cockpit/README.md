@@ -10,7 +10,7 @@ change written to the active config and applied on the next boot.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ COCKPIT      HOME  PLUGINS  L/R                  14:22:07    │
-│                    7 ACTIVE  KERNEL 3  SYSTEM 2  APPS 1      │
+│              7 PLUGINS ONLINE  KERNEL 3  SYSTEM 2  APPS 1    │
 ├──────────────────────────────────────────────────────────────┤
 │ CORE 552×210                 │ POWER 360×210                  │
 │ ARM  333  GPU  166  BUS  166 │                                │
@@ -34,16 +34,24 @@ change written to the active config and applied on the next boot.
 - **Auth:** UNSAFE eboot by default (`0x2F00000000000001`), because `uma0:`
   capacity needs `sceIoDevctl` (D42). `./build.sh --safe` builds the
   restricted `0x2F00000000000002` variant.
-- **Status:** builds and packages (108 KB VPK, b28), runs on the 3.65 console at
-  b13; 191 host checks pass. The tabbed build is pending the on-console check.
+- **Status:** builds and packages (111.6 KB VPK, b34), runs on the 3.65 console at
+  b13; 314 host checks and 13 previews pass. The fixed tabbed build is pending
+  the on-console check.
 
 The plugin screen resolves the active config the way taiHEN does — `ux0:` first,
 `ur0:` fallback — and names any ignored file. It lists every path in that config,
-active or commented, grouped by load target, and one row per unique path.
-`henkaku.suprx` and the three boot modules cannot be disabled; the DRM, storage,
-and other load-bearing plugins warn before a change. Every session rotates three
-backups (`.bak`, `.1.bak`, `.2.bak`) before reading the config, so a bad change
-has a way back.
+active or commented, grouped by load target, and one row per unique path. Each row
+has a status badge (`ACTIVATED`, `DISABLED`, `MISSING`, `PARTIAL`, `NOT REACHED`,
+`BOOT`) and an action control. The control is greyed when the action is
+impossible: a missing inactive file cannot be enabled, a boot module cannot be
+toggled, and a missing active file can only be disabled. `henkaku.suprx` and the
+three boot modules are locked; the DRM, storage, and other load-bearing plugins
+warn before a change.
+
+The first session writes `config.txt.original` once and never overwrites it;
+every session writes `config.txt.session` from the launch bytes. There are no
+`.bak`/`.1.bak`/`.2.bak` files. `boot_config.txt` is never opened, read, copied,
+or written.
 
 ## Read in this order
 
@@ -61,7 +69,7 @@ has a way back.
 ./build.sh --safe     # restricted eboot, marked -safe in the filename
 ```
 
-Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b28.vpk`.
+Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b34.vpk`.
 The build number counts distinct builds and is kept in `BUILD_NUMBER`: unchanged
 sources reuse the number, and only the newest VPK is kept (D46). Upload it with:
 
@@ -77,8 +85,8 @@ VitaShell must be running its FTP server on port 1337. The URL form is
 | Input | Action |
 |---|---|
 | L / R | switch HOME / PLUGINS |
-| D-pad up/down, left stick | scroll HOME, or move the PLUGINS selection |
-| Cross | toggle the selected plugin, or confirm a modal |
+| D-pad up/down, left stick | scroll HOME, or move the PLUGINS selection; at the last row it scrolls to the unlisted files |
+| Cross | toggle the selected plugin, or confirm a modal; on a greyed control it shows why it cannot act |
 | Circle | cancel a modal |
 | PS button | leave the app (system) |
 
@@ -89,8 +97,9 @@ VitaShell must be running its FTP server on port 1337. The URL form is
 ```
 
 Links the real `core/` against a fake port and asserts the sampling policy, the
-plugin config model, the toggle and backup path, and the input reducer. Exits
-non-zero on failure. 191 checks.
+plugin config model, the exact `#` edit, BOM and invalid-path handling, the two
+snapshots, the transactional write and its failure/restore path, and the input
+reducer. Exits non-zero on failure. 314 checks.
 
 ## Preview without hardware
 
@@ -99,10 +108,11 @@ non-zero on failure. 191 checks.
 ```
 
 Renders the shipped composition (`app/screen.c`) through a software vita2d shim
-and the same fake platform, writing nine scenes under `build/preview/`:
+and the same fake platform, writing 13 scenes under `build/preview/`:
 `preview-healthy.png`, `preview-alert.png`, `preview-plugins.png`,
-`preview-groups.png`, `preview-duplicate.png`, `preview-confirm.png`,
-`preview-write-failure.png`, `preview-readonly.png`, and
+`preview-plugins-bottom.png`, `preview-warning.png`, `preview-missing.png`,
+`preview-backup-warning.png`, `preview-groups.png`, `preview-duplicate.png`,
+`preview-confirm.png`, `preview-write-failure.png`, `preview-readonly.png`, and
 `preview-home-pending.png`. Each scene is produced by driving the fake port
 through the real sampler and policy, so a PNG proves the policy ran. Every
 number in it is synthetic, so it proves nothing about the device — only about

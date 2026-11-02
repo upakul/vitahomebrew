@@ -21,7 +21,11 @@
 
 #define CLOCK_Y 23.0f
 
-#define HAZARD_Y 48.0f
+/*
+ * The band sits in the last 8 px of the header, below the summary at y 42-56.
+ * A fault must never cover the plugin count (D63).
+ */
+#define HAZARD_Y 56.0f
 #define HAZARD_H 8.0f
 
 #define GLOW_OFFSET 2.0f
@@ -116,8 +120,7 @@ void header_draw(const UiState *ui)
     tabbar_draw(ui);
 
     /* D15: only ever drawn for a real fault, and it never reflows the layout.
-     * It shares the summary line, so a fault replaces the summary rather than
-     * covering the tabs. */
+     * D63: it is below the summary, so a fault and the plugin count coexist. */
     if (g_metrics.alert)
         theme_hazard(0.0f, HAZARD_Y, (float)SCREEN_W, HAZARD_H);
 }

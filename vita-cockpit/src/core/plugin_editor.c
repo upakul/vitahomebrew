@@ -10,7 +10,6 @@ EditorState g_editor;
 
 static const char *const CONFIG_UX0 = "ux0:tai/config.txt";
 static const char *const CONFIG_UR0 = "ur0:tai/config.txt";
-static const char *const BOOT_CONFIG = "ur0:tai/boot_config.txt";
 static const char *const TAI_DIRS[2] = {"ur0:tai", "ux0:tai"};
 
 static int is_storage_driver(const char *name)
@@ -27,11 +26,13 @@ static int is_boot_name(const char *name)
 
 static int is_boot_path(const EditorState *e, const char *path)
 {
-    for (int i = 0; i < e->boot_count; ++i) {
-        if (tai_ieq(e->boot_paths[i], path))
-            return 1;
-    }
+    (void)e;
 
+    /*
+     * boot_config.txt is deliberately not opened. The three modules below are
+     * the ones documented as loading before taiHEN reads config.txt, so they
+     * stay locked by name; any other boot module is outside this app's scope.
+     */
     return is_boot_name(tai_base_name(path));
 }
 
@@ -65,6 +66,7 @@ static void rebuild_rows(EditorState *e)
         if (ri < 0) {
             if (e->row_count >= EDITOR_ROWS_MAX) {
                 e->truncated = 1;
+                e->rows_truncated = 1;
                 continue;
             }
 
@@ -109,7 +111,7 @@ static void rebuild_rows(EditorState *e)
         } else if (r->active_lines > 0 && r->active_lines < r->reached_lines) {
             r->status = EDITOR_PARTIAL;
         } else if (r->active_lines > 0) {
-            r->status = EDITOR_ENABLED;
+            r->status = EDITOR_ACTIVATED;
         } else {
             r->status = EDITOR_DISABLED;
         }
@@ -120,9 +122,8 @@ static void rebuild_rows(EditorState *e)
 
     /*
      * Display order is section-major, so the selection index must follow the
-     * same order the panel draws. Without this, a *main row before a *KERNEL row
-     * is drawn above it but remains a higher index, and Down moves the cursor
-     * upward on screen (review #19).
+     * same order the panel draws. The sort is stable: rows in one section keep
+     * the order their first line appeared in the file.
      */
     for (int i = 1; i < e->row_count; ++i) {
         EditorRow tmp = e->rows[i];
@@ -146,8 +147,7 @@ static void rebuild_rows(EditorState *e)
 
 /*
  * The activated total is counted once per row, not once per line. A row with
- * several active lines must add one. Recompute it after the loop above so the
- * count does not depend on the line order.
+ * several active lines must add one.
  */
 static void rebuild_counts(EditorState *e)
 {
@@ -158,7 +158,7 @@ static void rebuild_counts(EditorState *e)
         EditorRow *r = &e->rows[i];
         if (r->boot)
             continue;
-        if (r->status == EDITOR_ENABLED || r->status == EDITOR_PARTIAL) {
+        if (r->status == EDITOR_ACTIVATED || r->status == EDITOR_PARTIAL) {
             ++e->activated_total;
             ++e->group_counts[r->section];
         }
@@ -177,6 +177,8 @@ static void parse_text(EditorState *e, const char *text, int len, int initial)
     e->valid = 1;
     e->invalid = 0;
     e->lines_truncated = 0;
+    e->rows_truncated = 0;
+    e->truncated = 0;
 
     int have_section = 0;
     int halted = 0;
@@ -185,23 +187,34 @@ static void parse_text(EditorState *e, const char *text, int len, int initial)
 
     while (i < len && e->line_count < EDITOR_LINES_MAX) {
         int start = i;
-        while (i < len && text[i] != '\n')
+
+        while (i < len && text[i] != '\n' && text[i] != '\r')
             ++i;
 
         int end = i;
         int newline = 0;
+
         if (i < len) {
-            ++i;
-            newline = 1;
-            if (end > start && text[end - 1] == '\r') {
-                --end;
+            if (text[i] == '\r' && i + 1 < len && text[i + 1] == '\n') {
+                i += 2;
                 newline = 2;
+            } else {
+                ++i;
+                newline = 1;
             }
         }
 
         int content = start;
         while (content < end && (text[content] == ' ' || text[content] == '\t'))
             ++content;
+
+        /* A UTF-8 BOM belongs to the file, not to the first header. */
+        if (start == 0 && content == 0 && tai_has_bom(text, len)) {
+            content = TAI_BOM_LEN;
+            while (content < end &&
+                   (text[content] == ' ' || text[content] == '\t'))
+                ++content;
+        }
 
         int content_end = end;
         while (content_end > content &&
@@ -214,6 +227,8 @@ static void parse_text(EditorState *e, const char *text, int len, int initial)
         l->len = end - start;
         l->content = content;
         l->content_len = content_end - content;
+        l->hash = -1;
+        l->path_start = content;
         l->newline = newline;
         l->section = section;
         l->row = -1;
@@ -227,32 +242,48 @@ static void parse_text(EditorState *e, const char *text, int len, int initial)
                 have_section = 1;
             } else {
                 section = tai_section_from_header(text + content,
-                                              content_end - content);
+                                                  content_end - content);
                 have_section = 1;
             }
             l->section = section;
         } else {
-            int active = 1;
-            int path_start = content;
+            /*
+             * A disabled line may carry one or more '#' markers, with spaces
+             * between them. The path begins after the whole comment run. This
+             * makes `##foo.skprx` and `# # foo.skprx` uncomment cleanly instead
+             * of leaving a '#' behind.
+             */
+            int p = content;
+            int hash = -1;
+            int hash_count = 0;
 
-            if (text[content] == '#') {
-                active = 0;
-                path_start = content + 1;
-                while (path_start < content_end &&
-                       (text[path_start] == ' ' || text[path_start] == '\t'))
-                    ++path_start;
+            while (p < content_end && text[p] == '#') {
+                if (hash < 0)
+                    hash = p;
+                ++hash_count;
+                ++p;
+                while (p < content_end &&
+                       (text[p] == ' ' || text[p] == '\t'))
+                    ++p;
             }
 
+            int path_start = p;
+            int active = hash_count == 0;
+
             if (path_start < content_end &&
-                tai_is_plugin_path_slice(text + path_start,
-                                     content_end - path_start)) {
+                tai_path_valid(text + path_start, content_end - path_start)) {
                 l->kind = EDITOR_LINE_PATH;
                 l->active = active;
                 l->reached = have_section && !halted;
+                l->hash = hash;
+                l->hash_count = hash_count;
+                l->path_start = path_start;
+
                 if (content_end - path_start >= PLUGIN_PATH_MAX)
                     e->lines_truncated = 1;
+
                 tai_copy_slice(l->path, sizeof(l->path), text + path_start,
-                           content_end - path_start);
+                               content_end - path_start);
                 if (!have_section)
                     e->valid = 0;
             } else {
@@ -267,48 +298,13 @@ static void parse_text(EditorState *e, const char *text, int len, int initial)
     }
 
     e->invalid = e->valid ? 0 : 1;
+
     if (i < len) {
         e->truncated = 1;
         e->lines_truncated = 1;
     }
+
     rebuild_rows(e);
-}
-
-static void parse_boot(EditorState *e, const char *text, int len)
-{
-    e->boot_count = 0;
-    int i = 0;
-
-    while (i < len && e->boot_count < EDITOR_BOOT_MAX) {
-        while (i < len && (text[i] == ' ' || text[i] == '\t'))
-            ++i;
-
-        if (i < len && text[i] == '-')
-            ++i;
-        while (i < len && (text[i] == ' ' || text[i] == '\t'))
-            ++i;
-
-        if (i + 4 <= len && memcmp(text + i, "load", 4) == 0) {
-            i += 4;
-            while (i < len && (text[i] == ' ' || text[i] == '\t'))
-                ++i;
-
-            int start = i;
-            while (i < len && text[i] != '\n' && text[i] != '\r')
-                ++i;
-
-            if (i > start) {
-                tai_copy_slice(e->boot_paths[e->boot_count],
-                           sizeof(e->boot_paths[0]), text + start, i - start);
-                ++e->boot_count;
-            }
-        }
-
-        while (i < len && text[i] != '\n')
-            ++i;
-        if (i < len)
-            ++i;
-    }
 }
 
 typedef struct {
@@ -323,17 +319,24 @@ static void orphan_cb(const char *name, int is_dir, void *user)
 
     if (is_dir || !tai_is_plugin_path(name))
         return;
-    if (tai_ends_with(name, ".bak") || tai_ends_with(name, ".new"))
+    if (tai_ends_with(name, ".bak") || tai_ends_with(name, ".new") ||
+        tai_ends_with(name, ".old") || tai_ends_with(name, ".original") ||
+        tai_ends_with(name, ".session"))
         return;
-    if (e->orphan_count >= EDITOR_ORPHANS_MAX)
+
+    if (e->orphan_count >= EDITOR_ORPHANS_MAX) {
+        e->orphan_truncated = 1;
         return;
+    }
 
     char full[PLUGIN_PATH_MAX];
     int dirlen = (int)strlen(ctx->dir);
     int namelen = (int)strlen(name);
 
-    if (dirlen + 1 + namelen >= (int)sizeof(full))
+    if (dirlen + 1 + namelen >= (int)sizeof(full)) {
+        e->orphan_truncated = 1;
         return;
+    }
 
     memcpy(full, ctx->dir, (size_t)dirlen);
     full[dirlen] = '/';
@@ -351,53 +354,95 @@ static void orphan_cb(const char *name, int is_dir, void *user)
     ++e->orphan_count;
 }
 
+static void sort_orphans(EditorState *e)
+{
+    for (int i = 1; i < e->orphan_count; ++i) {
+        char path[PLUGIN_PATH_MAX];
+        int shadowed = e->orphan_shadowed[i];
+
+        tai_copy(path, sizeof(path), e->orphans[i]);
+
+        int j = i - 1;
+        while (j >= 0 && strcmp(e->orphans[j], path) > 0) {
+            tai_copy(e->orphans[j + 1], sizeof(e->orphans[0]), e->orphans[j]);
+            e->orphan_shadowed[j + 1] = e->orphan_shadowed[j];
+            --j;
+        }
+
+        tai_copy(e->orphans[j + 1], sizeof(e->orphans[0]), path);
+        e->orphan_shadowed[j + 1] = shadowed;
+    }
+}
+
 void editor_scan(void)
 {
     memset(&g_editor, 0, sizeof(g_editor));
 
-    int fail_ux0 = platform_backup_rotate(CONFIG_UX0) != 0;
-    int fail_ur0 = platform_backup_rotate(CONFIG_UR0) != 0;
-    int fail_boot = platform_backup_rotate(BOOT_CONFIG) != 0;
-
     static char buf[EDITOR_TEXT_MAX];
     int n = 0;
+    int saw_unreadable = 0;
+
     PlatformReadStatus status = platform_read_config(CONFIG_UX0, buf,
                                                      (int)sizeof(buf), &n);
+
+    if (status == PLATFORM_READ_UNREADABLE)
+        saw_unreadable = 1;
 
     if (status == PLATFORM_READ_OK || status == PLATFORM_READ_TOO_LARGE) {
         tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UX0);
         g_editor.source_ok = 1;
-        if (fail_ux0)
-            g_editor.read_only = 1;
     } else {
         status = platform_read_config(CONFIG_UR0, buf, (int)sizeof(buf), &n);
+        if (status == PLATFORM_READ_UNREADABLE)
+            saw_unreadable = 1;
         if (status == PLATFORM_READ_OK || status == PLATFORM_READ_TOO_LARGE) {
             tai_copy(g_editor.source, sizeof(g_editor.source), CONFIG_UR0);
             g_editor.source_ok = 1;
-            if (fail_ur0)
-                g_editor.read_only = 1;
         }
     }
 
     if (!g_editor.source_ok) {
         g_editor.read_only = 1;
         g_editor.invalid = 1;
+        g_editor.unreadable = saw_unreadable;
     } else if (status == PLATFORM_READ_TOO_LARGE) {
         g_editor.too_large = 1;
         g_editor.read_only = 1;
+        g_editor.backup_warning = 1;
     } else if (status != PLATFORM_READ_OK) {
         g_editor.read_only = 1;
+        g_editor.unreadable = 1;
         g_editor.invalid = 1;
+        g_editor.backup_warning = 1;
     } else if (n >= EDITOR_TEXT_MAX) {
         g_editor.too_large = 1;
         g_editor.read_only = 1;
+        g_editor.backup_warning = 1;
     } else {
-        tai_copy(g_editor.launch_text, sizeof(g_editor.launch_text), buf);
-        g_editor.launch_len = n;
-        tai_copy(g_editor.last_text, sizeof(g_editor.last_text), buf);
+        /*
+         * Snapshot the bytes we just read, not a second read: the session
+         * backup must be exactly the launch file even if the file changes
+         * between the scan and the copy. A failed snapshot is a warning; it
+         * must never lock the editor (D61).
+         */
+        int original_ok = 0;
+        int session_ok = 0;
+
+        if (platform_backup_config(g_editor.source, buf, n, &original_ok,
+                                   &session_ok) != 0 ||
+            !original_ok || !session_ok) {
+            g_editor.backup_warning = 1;
+        }
+
+        g_editor.backup_original_ok = original_ok;
+        g_editor.backup_session_ok = session_ok;
+
+        memcpy(g_editor.last_text, buf, (size_t)n);
+        g_editor.last_text[n] = '\0';
         g_editor.last_len = n;
         parse_text(&g_editor, buf, n, 1);
-        if (g_editor.lines_truncated)
+
+        if (g_editor.lines_truncated || g_editor.rows_truncated)
             g_editor.read_only = 1;
     }
 
@@ -408,26 +453,9 @@ void editor_scan(void)
              platform_file_exists(CONFIG_UX0))
         tai_copy(g_editor.ignored, sizeof(g_editor.ignored), CONFIG_UX0);
 
-    if (fail_boot ||
-        (strcmp(g_editor.source, CONFIG_UX0) == 0 && fail_ur0) ||
-        (strcmp(g_editor.source, CONFIG_UR0) == 0 && fail_ux0))
-        g_editor.backup_warning = 1;
-
-    static char bootbuf[8192];
-    int bn = 0;
-    PlatformReadStatus boot_status = platform_read_config(
-        BOOT_CONFIG, bootbuf, (int)sizeof(bootbuf), &bn);
-
-    if (boot_status == PLATFORM_READ_OK) {
-        g_editor.boot_ok = 1;
-        parse_boot(&g_editor, bootbuf, bn);
-    } else {
-        g_editor.boot_ok = 0;
-    }
-
-    rebuild_rows(&g_editor);
-
-    if (!g_editor.valid || !g_editor.boot_ok || g_editor.truncated) {
+    if (!g_editor.source_ok || g_editor.too_large || g_editor.unreadable ||
+        g_editor.lines_truncated || g_editor.rows_truncated ||
+        g_editor.truncated) {
         g_editor.orphans_unverified = 1;
     } else {
         for (size_t i = 0; i < sizeof(TAI_DIRS) / sizeof(TAI_DIRS[0]); ++i) {
@@ -435,7 +463,27 @@ void editor_scan(void)
             if (platform_list_dir(TAI_DIRS[i], orphan_cb, &ctx) < 0)
                 g_editor.orphans_unverified = 1;
         }
+
+        sort_orphans(&g_editor);
     }
+}
+
+const char *editor_readonly_reason(void)
+{
+    if (g_editor.unreadable)
+        return "CONFIG UNREADABLE";
+    if (!g_editor.source_ok)
+        return "NO CONFIG.TXT";
+    if (g_editor.too_large)
+        return "CONFIG TOO LARGE";
+    if (g_editor.lines_truncated)
+        return "CONFIG TOO LONG";
+    if (g_editor.rows_truncated)
+        return "TOO MANY PLUGIN ROWS";
+    if (g_editor.read_only)
+        return "CONFIG IS READ ONLY";
+
+    return NULL;
 }
 
 int editor_row_actionable(int row)
@@ -443,8 +491,8 @@ int editor_row_actionable(int row)
     if (row < 0 || row >= g_editor.row_count)
         return 0;
 
-    if (!g_editor.source_ok || g_editor.read_only || g_editor.invalid ||
-        g_editor.too_large || g_editor.lines_truncated)
+    if (!g_editor.source_ok || g_editor.read_only || g_editor.too_large ||
+        g_editor.lines_truncated || g_editor.rows_truncated)
         return 0;
 
     const EditorRow *r = &g_editor.rows[row];
@@ -464,6 +512,10 @@ int editor_next_action(int row)
     if (row < 0 || row >= g_editor.row_count)
         return -1;
 
+    if (!g_editor.source_ok || g_editor.read_only || g_editor.too_large ||
+        g_editor.lines_truncated || g_editor.rows_truncated)
+        return -1;
+
     const EditorRow *r = &g_editor.rows[row];
 
     if (r->status == EDITOR_BOOT || r->status == EDITOR_NOT_REACHED)
@@ -475,56 +527,17 @@ int editor_next_action(int row)
     if (r->status == EDITOR_MISSING)
         return r->active_lines > 0 ? 0 : -1;
 
-    int any_launch_active = 0;
-    int any_launch_inactive = 0;
-    int all_active = 1;
-    int all_inactive = 1;
-    int matches_launch = 1;
-    int reached = 0;
-
-    for (int i = 0; i < g_editor.line_count; ++i) {
-        const EditorLine *l = &g_editor.lines[i];
-        if (l->kind != EDITOR_LINE_PATH || l->row != row || !l->reached)
-            continue;
-
-        ++reached;
-        if (l->launch_active)
-            any_launch_active = 1;
-        else
-            any_launch_inactive = 1;
-
-        if (l->active)
-            all_inactive = 0;
-        else
-            all_active = 0;
-
-        if (l->active != l->launch_active)
-            matches_launch = 0;
-    }
-
-    if (reached == 0)
+    if (r->reached_lines == 0)
         return -1;
 
-    if (any_launch_active && any_launch_inactive) {
-        if (matches_launch)
-            return 0;
-        if (all_inactive)
-            return 1;
-        if (all_active)
-            return 2;
-        return 0;
-    }
-
-    if (all_inactive)
-        return 1;
-    return 0;
+    return r->active_lines == r->reached_lines ? 0 : 1;
 }
 
 const char *editor_status_text(EditorStatus status)
 {
     switch (status) {
-    case EDITOR_ENABLED:
-        return "ENABLED";
+    case EDITOR_ACTIVATED:
+        return "ACTIVATED";
     case EDITOR_DISABLED:
         return "DISABLED";
     case EDITOR_MISSING:
@@ -558,14 +571,70 @@ const char *editor_section_text(PluginSection section)
     }
 }
 
+const char *editor_action_text(int row)
+{
+    if (row < 0 || row >= g_editor.row_count)
+        return "--";
+
+    if (editor_readonly_reason() != NULL)
+        return "LOCKED";
+
+    const EditorRow *r = &g_editor.rows[row];
+
+    if (r->status == EDITOR_BOOT)
+        return "BOOT";
+    if (r->status == EDITOR_NOT_REACHED)
+        return "--";
+    if (r->locked && r->active_lines == r->reached_lines)
+        return "LOCKED";
+    if (r->status == EDITOR_MISSING && r->active_lines == 0)
+        return "MISSING";
+
+    int action = editor_next_action(row);
+    if (action == 0)
+        return "DISABLE";
+    if (action == 1)
+        return "ENABLE";
+
+    return "--";
+}
+
+const char *editor_action_reason(int row)
+{
+    if (row < 0 || row >= g_editor.row_count)
+        return NULL;
+
+    const char *read_only = editor_readonly_reason();
+    if (read_only != NULL)
+        return read_only;
+
+    const EditorRow *r = &g_editor.rows[row];
+
+    if (r->status == EDITOR_BOOT)
+        return "BOOT MODULE. NOT EDITABLE HERE.";
+    if (r->status == EDITOR_NOT_REACHED)
+        return "AFTER A *! HALT. NOT LOADED.";
+    if (r->locked && r->active_lines == r->reached_lines)
+        return "HENKAKU IS THE SETTINGS UI. IT CANNOT BE DISABLED.";
+    if (r->status == EDITOR_MISSING && r->active_lines == 0)
+        return "FILE IS MISSING FROM THE TAI DIRECTORY.";
+
+    if (editor_next_action(row) < 0)
+        return "THIS ROW HAS NO ACTION.";
+
+    return NULL;
+}
+
 const char *editor_confirm_text(int row, int mode)
 {
-    if (row < 0 || row >= g_editor.row_count || mode < 0 || mode > 2)
+    if (row < 0 || row >= g_editor.row_count || (mode != 0 && mode != 1))
         return NULL;
 
     const EditorRow *r = &g_editor.rows[row];
 
-    if (mode == 2 || r->locked || r->boot || r->status == EDITOR_NOT_REACHED)
+    if (r->locked || r->boot || r->status == EDITOR_NOT_REACHED)
+        return NULL;
+    if (r->status == EDITOR_MISSING && mode == 1)
         return NULL;
 
     if (is_storage_driver(r->name)) {
@@ -607,26 +676,16 @@ int editor_row_for_path(const char *path)
     return path == NULL ? -1 : row_for_path(&g_editor, path);
 }
 
-
-int editor_nearest_actionable(int from)
+static int copy_region(char *dst, int out, int cap, const char *src, int from,
+                       int to)
 {
-    if (g_editor.row_count == 0)
-        return -1;
-
-    if (from < 0)
-        from = 0;
-
-    for (int i = from; i < g_editor.row_count; ++i) {
-        if (editor_row_actionable(i))
-            return i;
+    for (int i = from; i < to; ++i) {
+        if (out >= cap - 1)
+            return -1;
+        dst[out++] = src[i];
     }
 
-    for (int i = from - 1; i >= 0; --i) {
-        if (editor_row_actionable(i))
-            return i;
-    }
-
-    return -1;
+    return out;
 }
 
 int editor_toggle(int row, int mode, char *err, int err_cap)
@@ -634,16 +693,16 @@ int editor_toggle(int row, int mode, char *err, int err_cap)
     if (err != NULL && err_cap > 0)
         err[0] = '\0';
 
-    if (row < 0 || row >= g_editor.row_count || mode < 0 || mode > 2) {
+    if (row < 0 || row >= g_editor.row_count || (mode != 0 && mode != 1)) {
         if (err != NULL)
             snprintf(err, (size_t)err_cap, "NO ACTION");
         return -1;
     }
 
-    if (!g_editor.source_ok || g_editor.read_only || g_editor.invalid ||
-        g_editor.too_large || g_editor.lines_truncated) {
+    const char *read_only = editor_readonly_reason();
+    if (read_only != NULL) {
         if (err != NULL)
-            snprintf(err, (size_t)err_cap, "CONFIG IS READ-ONLY");
+            snprintf(err, (size_t)err_cap, "%s", read_only);
         return -1;
     }
 
@@ -674,29 +733,17 @@ int editor_toggle(int row, int mode, char *err, int err_cap)
         checked != g_editor.last_len ||
         memcmp(check, g_editor.last_text, (size_t)checked) != 0) {
         if (err != NULL)
-            snprintf(err, (size_t)err_cap, "CONFIG CHANGED ON DISK. RESTART COCKPIT.");
+            snprintf(err, (size_t)err_cap,
+                     "CONFIG CHANGED ON DISK. RESTART COCKPIT.");
         return -1;
     }
 
-    char bak[PLUGIN_PATH_MAX + 8];
-    snprintf(bak, sizeof(bak), "%s.bak", g_editor.source);
+    int old_active[EDITOR_LINES_MAX] = {0};
+    int launch_active[EDITOR_LINES_MAX] = {0};
 
-    static char bakbuf[EDITOR_TEXT_MAX];
-    int baklen = 0;
-    if (platform_read_config(bak, bakbuf, (int)sizeof(bakbuf), &baklen) !=
-            PLATFORM_READ_OK ||
-        baklen != g_editor.launch_len ||
-        memcmp(bakbuf, g_editor.launch_text, (size_t)baklen) != 0) {
-        if (err != NULL)
-            snprintf(err, (size_t)err_cap, "BACKUP MISSING OR CHANGED");
-        return -1;
-    }
-
-    int old[EDITOR_LINES_MAX];
-    int launch[EDITOR_LINES_MAX];
     for (int i = 0; i < g_editor.line_count; ++i) {
-        old[i] = g_editor.lines[i].active;
-        launch[i] = g_editor.lines[i].launch_active;
+        old_active[i] = g_editor.lines[i].active;
+        launch_active[i] = g_editor.lines[i].launch_active;
     }
 
     for (int i = 0; i < g_editor.line_count; ++i) {
@@ -704,107 +751,104 @@ int editor_toggle(int row, int mode, char *err, int err_cap)
         if (l->kind != EDITOR_LINE_PATH || l->row != row || !l->reached)
             continue;
 
-        if (mode == 0)
-            l->active = 0;
-        else if (mode == 1)
-            l->active = 1;
-        else
-            l->active = launch[i];
+        l->active = mode == 1;
     }
 
     static char next[EDITOR_TEXT_MAX];
     int out = 0;
-    int overflow = 0;
 
-    for (int i = 0; i < g_editor.line_count && !overflow; ++i) {
+    for (int i = 0; i < g_editor.line_count; ++i) {
         EditorLine *l = &g_editor.lines[i];
         int line_end = l->start + l->len;
-        int nl = l->newline;
 
         if (l->kind == EDITOR_LINE_PATH && l->row == row && l->reached) {
-            for (int p = l->start; p < l->content; ++p) {
-                if (out >= EDITOR_TEXT_MAX - 1) {
-                    overflow = 1;
-                    break;
-                }
-                next[out++] = g_editor.text[p];
-            }
-            if (overflow)
-                break;
+            if (l->active) {
+                int from = l->start;
 
-            int was_active = old[i];
-            int path_start = was_active ? l->content : l->content + 1;
+                if (l->hash >= 0)
+                    from = l->hash;
 
-            if (!l->active) {
-                if (out >= EDITOR_TEXT_MAX - 1) {
-                    overflow = 1;
+                out = copy_region(next, out, (int)sizeof(next), g_editor.text,
+                                  l->start, from);
+                if (out < 0)
                     break;
-                }
-                next[out++] = '#';
-            }
 
-            for (int p = path_start; p < line_end; ++p) {
-                if (out >= EDITOR_TEXT_MAX - 1) {
-                    overflow = 1;
-                    break;
+                if (l->hash >= 0) {
+                    out = copy_region(next, out, (int)sizeof(next),
+                                      g_editor.text, l->path_start, line_end);
+                    if (out < 0)
+                        break;
+                } else {
+                    out = copy_region(next, out, (int)sizeof(next),
+                                      g_editor.text, from, line_end);
+                    if (out < 0)
+                        break;
                 }
-                next[out++] = g_editor.text[p];
+            } else {
+                if (l->hash >= 0) {
+                    out = copy_region(next, out, (int)sizeof(next),
+                                      g_editor.text, l->start, line_end);
+                } else {
+                    out = copy_region(next, out, (int)sizeof(next),
+                                      g_editor.text, l->start, l->content);
+                    if (out < 0)
+                        break;
+                    if (out >= (int)sizeof(next) - 1) {
+                        out = -1;
+                        break;
+                    }
+                    next[out++] = '#';
+                    out = copy_region(next, out, (int)sizeof(next),
+                                      g_editor.text, l->content, line_end);
+                }
+                if (out < 0)
+                    break;
             }
         } else {
-            for (int p = l->start; p < line_end; ++p) {
-                if (out >= EDITOR_TEXT_MAX - 1) {
-                    overflow = 1;
-                    break;
-                }
-                next[out++] = g_editor.text[p];
-            }
-        }
-
-        if (overflow)
-            break;
-
-        for (int p = 0; p < nl; ++p) {
-            if (out >= EDITOR_TEXT_MAX - 1) {
-                overflow = 1;
+            out = copy_region(next, out, (int)sizeof(next), g_editor.text,
+                              l->start, line_end);
+            if (out < 0)
                 break;
-            }
-            next[out++] = g_editor.text[line_end + p];
         }
+
+        out = copy_region(next, out, (int)sizeof(next), g_editor.text,
+                          line_end, line_end + l->newline);
+        if (out < 0)
+            break;
     }
 
-    if (overflow || out >= EDITOR_TEXT_MAX - 1) {
+    if (out < 0 || out >= EDITOR_TEXT_MAX - 1) {
         for (int i = 0; i < g_editor.line_count; ++i)
-            g_editor.lines[i].active = old[i];
+            g_editor.lines[i].active = old_active[i];
         rebuild_rows(&g_editor);
         if (err != NULL)
             snprintf(err, (size_t)err_cap, "CONFIG TOO LARGE TO EDIT");
         return -1;
     }
 
+    next[out] = '\0';
+
     if (platform_write_config(g_editor.source, next, out) != 0) {
         for (int i = 0; i < g_editor.line_count; ++i)
-            g_editor.lines[i].active = old[i];
+            g_editor.lines[i].active = old_active[i];
         rebuild_rows(&g_editor);
         if (err != NULL)
             snprintf(err, (size_t)err_cap, "WRITE FAILED");
         return -1;
     }
 
-    static char launch_text[EDITOR_TEXT_MAX];
-    int launch_len = g_editor.launch_len;
-    memcpy(launch_text, g_editor.launch_text, (size_t)launch_len + 1);
-
     int line_count = g_editor.line_count;
     parse_text(&g_editor, next, out, 0);
 
     for (int i = 0; i < line_count && i < g_editor.line_count; ++i)
-        g_editor.lines[i].launch_active = launch[i];
+        g_editor.lines[i].launch_active = launch_active[i];
 
-    memcpy(g_editor.launch_text, launch_text, (size_t)launch_len + 1);
-    g_editor.launch_len = launch_len;
-    tai_copy(g_editor.last_text, sizeof(g_editor.last_text), next);
+    memcpy(g_editor.last_text, next, (size_t)out);
+    g_editor.last_text[out] = '\0';
     g_editor.last_len = out;
 
+    /* parse_text rebuilt rows with launch_active at zero; rebuild after the
+     * session baseline is restored so PENDING means what it says. */
     rebuild_rows(&g_editor);
 
     return 0;

@@ -23,7 +23,7 @@ after every job** — a job is not finished until this file reflects it.
 |---|---|---|---|---|
 | `vita-cap-test` | `built` | 2026-11-02 — artifact renamed to `cap-test-v<version>-b<build>.vpk` with an auto-incrementing build number | Run on hardware; confirm I/O, PCM audio, WiFi/DNS/HTTP | Unsafe `...0001`. 2.6 MB VPK. |
 | `vita-kernel-demo` | `built` | 2026-11-02 — artifact renamed to `kernel-demo-v<version>-b<build>.vpk`; the VPK CMake target is now interpolated from the artifact name | On-demand load test; confirm hook UID and the open counter | Not in `*KERNEL`. 3.65 NID unverified. |
-| `vita-cockpit` | `built` | 2026-11-02 — tabbed plugin manager (D54-D60): HOME summary, PLUGINS ledger, enable/disable with lock/warn policy, three-deep config backups | Flash `cockpit-v01.00-b28.vpk` and verify the tabs, summary, toggle, lock, storage warning, backups, and reboot persistence on the OLED | `UNSAFE` default. 191 host checks. 108 KB VPK. Busiest preview 5,032 draw calls. Rename-overwrite is `[C]`. |
+| `vita-cockpit` | `built` | 2026-11-02 — fixed the hardware regressions: permanent `N PLUGINS ONLINE` summary, exact `#` toggles, BOM and stray-path warnings, two snapshots (`config.txt.original`/`.session`), rename-away verified writes, status badges and greyed controls, `boot_config.txt` out of scope | Flash `cockpit-v01.00-b34.vpk` and verify the summary, every badge/control state, a toggle surviving reboot, the two snapshots, and that no `.bak`/`boot_config` file was created | `UNSAFE` default. 314 host checks. 111.6 KB VPK. 13 previews, busiest 5,793 draw calls. The SDK rename transaction is `[C]`. |
 
 ---
 
@@ -39,6 +39,7 @@ current `b8`+ builds.
 
 | Date | Project | Change |
 |---|---|---|
+| 2026-11-02 | `vita-cockpit` | Fixed the plugin-manager hardware regressions: the HOME summary is permanent label-scale `N PLUGINS ONLINE` above the hazard band (D63); toggles are an exact two-state `#` edit with BOM and stray-path warnings (D62, D65); the write is a verified rename-away swap (D64); the active config gets `config.txt.original` + `config.txt.session` only (D61); every row has a status badge and a greyed/active control (D66); `boot_config.txt` is no longer read or backed up. 314 checks, 13 previews, b34 at 111.6 KB. Hardware check pending. |
 | 2026-11-02 | `vita-cockpit` | Implemented the tabbed plugin manager: HOME summary and PLUGINS ledger (D54, D60), taiHEN config precedence (D55), byte-preserving full-path rows (D56), transactional writes with three-deep session backups (D57), lock/warn policy (D58), launch-set counts and session-scoped pending (D59). 191 host checks, 9 preview states, b28 at 108 KB. Hardware check pending. |
 | 2026-11-02 | `vita-cockpit` | Planned the tabbed plugin manager: HOME summary plus a selectable PLUGINS screen that toggles `config.txt` lines with next-boot effect; research corrected the active-config precedence, locked `henkaku.suprx`, and found storage drivers need a special warning. Plan doc-reviewed with 5 reviewers; no code changed. |
 | 2026-11-02 | `vita-cockpit` | Removed the header hairline and inset the scrolling band by 12 px (band 64..472, content starts at 76), so CORE/POWER outlines are no longer clipped and both panel rows fit at scroll 0; scroll range unchanged (D53). |

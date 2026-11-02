@@ -55,7 +55,7 @@ cd vita-kernel-demo && ./build.sh   # app + kernel plugin
 Each project emits one uniquely named artifact in its `build/` directory:
 
 ```text
-build/cockpit-v01.00-b28.vpk
+build/cockpit-v01.00-b34.vpk
 build/cap-test-v01.00-b4.vpk
 build/kernel-demo-v01.00-b5.vpk
 ```
@@ -98,24 +98,29 @@ UMA0                  N/A    │ RUN     00:14:22
 FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼───
 ```
 
-The header carries `HOME` and `PLUGINS` tabs and a one-line summary of the
-activated plugins. Press L/R to switch; the dashboard stays one screen.
+The header carries `HOME` and `PLUGINS` tabs and a `N PLUGINS ONLINE` summary
+with the non-empty group counts. Press L/R to switch; the dashboard stays one
+screen.
 
 | Input | Action |
 |---|---|
 | L / R | switch HOME / PLUGINS |
-| D-pad up/down, left stick | scroll HOME, or move the PLUGINS selection |
-| Cross | toggle the selected plugin, or confirm a modal |
+| D-pad up/down, left stick | scroll HOME, or move the PLUGINS selection; at the last row it reaches the unlisted files |
+| Cross | toggle the selected plugin, or confirm a modal; on a greyed control it shows why it cannot act |
 | Circle | cancel a modal |
 | PS button | leave the app (system) |
 
-HOME replaces the old ledger with the summary; the full ledger is its own
-screen. PLUGINS reads every path in the active `config.txt` — active or
-commented — groups it by load target, and toggles a plugin by editing its line.
-`henkaku.suprx` and the three boot modules are locked; the DRM, storage, and
-other load-bearing plugins warn before a change. Each session rotates three
-backups (`.bak`, `.1.bak`, `.2.bak`) before reading the config. Descriptions
-cover 155 known taiHEN plugins; an entry outside the catalog says `N/A`.
+HOME keeps the dashboard and replaces the old ledger with the summary; the full
+ledger is its own screen. PLUGINS reads every path in the active `config.txt` —
+active or commented — groups it by load target, and toggles a plugin by editing
+its line. Every row shows a status badge (`ACTIVATED`, `DISABLED`, `MISSING`,
+`PARTIAL`, `NOT REACHED`, `BOOT`) and an action control; the control is greyed
+when the action is impossible. `henkaku.suprx` and the three boot modules are
+locked; the DRM, storage, and other load-bearing plugins warn before a change.
+The first session writes `config.txt.original` once; every session writes
+`config.txt.session`. There are no three-deep `.bak` rotations, and
+`boot_config.txt` is never opened. Descriptions cover 155 known taiHEN plugins;
+an entry outside the catalog says `N/A`.
 
 <p align="center">
   <img src="vita-cockpit/docs/preview-plugins.png" alt="COCKPIT plugin manager" width="640">
@@ -131,15 +136,16 @@ for a refused read.
 
 ```sh
 cd vita-cockpit
-./tools/test/run.sh      # 191 host checks against a fake port
-./tools/preview/run.sh   # nine 960×544 PNGs in build/preview/
+./tools/test/run.sh      # 314 host checks against a fake port
+./tools/preview/run.sh   # 13 960×544 PNGs in build/preview/
 ```
 
 The tests link the real sampling policy against a fake platform and assert the
 alert boundary, failed-read handling, unit conversions, history ring, frame
-floor, and the plugin table, the config editor, the backup rotation, and the
-input reducer. The preview renders the shipped composition through a software
-vita2d shim, so a PNG proves the policy ran. Neither replaces a hardware run.
+floor, the plugin table, the config editor, the two snapshots, the transactional
+write and its restore path, and the input reducer. The preview renders the
+shipped composition through a software vita2d shim, so a PNG proves the policy
+ran. Neither replaces a hardware run.
 
 ## Repository layout
 

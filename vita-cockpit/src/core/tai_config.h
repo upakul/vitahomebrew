@@ -2,7 +2,6 @@
 #define COCKPIT_CORE_TAI_CONFIG_H
 
 #include <stddef.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "core/plugins.h"
@@ -17,18 +16,18 @@
  * line endings, and reachability.
  */
 
+static inline char tai_lower(char c)
+{
+    if (c >= 'A' && c <= 'Z')
+        return (char)(c - 'A' + 'a');
+
+    return c;
+}
+
 static inline int tai_ieq(const char *a, const char *b)
 {
     while (*a != '\0' && *b != '\0') {
-        char ca = *a;
-        char cb = *b;
-
-        if (ca >= 'A' && ca <= 'Z')
-            ca = (char)(ca - 'A' + 'a');
-        if (cb >= 'A' && cb <= 'Z')
-            cb = (char)(cb - 'A' + 'a');
-
-        if (ca != cb)
+        if (tai_lower(*a) != tai_lower(*b))
             return 0;
 
         ++a;
@@ -50,23 +49,65 @@ static inline const char *tai_base_name(const char *path)
     return base;
 }
 
-static inline int tai_ends_with(const char *s, const char *suffix)
+static inline int tai_slice_ends_with_ci(const char *s, int len,
+                                         const char *suffix)
 {
-    size_t n = strlen(s);
-    size_t m = strlen(suffix);
+    int m = (int)strlen(suffix);
 
-    return n >= m && strcmp(s + n - m, suffix) == 0;
+    if (len < m)
+        return 0;
+
+    for (int i = 0; i < m; ++i) {
+        if (tai_lower(s[len - m + i]) != tai_lower(suffix[i]))
+            return 0;
+    }
+
+    return 1;
 }
 
-static inline int tai_is_plugin_path(const char *s)
+static inline int tai_ends_with(const char *s, const char *suffix)
 {
-    return tai_ends_with(s, ".skprx") || tai_ends_with(s, ".suprx");
+    return tai_slice_ends_with_ci(s, (int)strlen(s), suffix);
 }
 
 static inline int tai_is_plugin_path_slice(const char *s, int len)
 {
-    return (len >= 6 && memcmp(s + len - 6, ".skprx", 6) == 0) ||
-           (len >= 6 && memcmp(s + len - 6, ".suprx", 6) == 0);
+    return tai_slice_ends_with_ci(s, len, ".skprx") ||
+           tai_slice_ends_with_ci(s, len, ".suprx");
+}
+
+static inline int tai_is_plugin_path(const char *s)
+{
+    return tai_is_plugin_path_slice(s, (int)strlen(s));
+}
+
+/*
+ * A config path has no whitespace and no control bytes. Without this check a
+ * prose comment that happens to end in `.skprx` becomes a phantom row. The
+ * rule is deliberately conservative: taiHEN reads the rest of the line as one
+ * path, so a line with a space in it is ambiguous rather than a valid plugin.
+ */
+static inline int tai_path_valid(const char *s, int len)
+{
+    if (len <= 0)
+        return 0;
+
+    for (int i = 0; i < len; ++i) {
+        unsigned char c = (unsigned char)s[i];
+
+        if (c <= ' ' || c == 0x7f || c == '#')
+            return 0;
+    }
+
+    return tai_is_plugin_path_slice(s, len);
+}
+
+#define TAI_BOM_LEN 3
+
+static inline int tai_has_bom(const char *s, int len)
+{
+    return len >= TAI_BOM_LEN && (unsigned char)s[0] == 0xEF &&
+           (unsigned char)s[1] == 0xBB && (unsigned char)s[2] == 0xBF;
 }
 
 /*
@@ -95,7 +136,12 @@ static inline void tai_copy(char *dst, size_t cap, const char *src)
     if (cap == 0)
         return;
 
-    snprintf(dst, cap, "%s", src);
+    size_t n = strlen(src);
+    if (n >= cap)
+        n = cap - 1;
+
+    memcpy(dst, src, n);
+    dst[n] = '\0';
 }
 
 static inline void tai_copy_slice(char *dst, size_t cap, const char *src,

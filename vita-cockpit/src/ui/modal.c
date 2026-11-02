@@ -50,6 +50,18 @@ void modal_open_error(UiState *ui, const char *text)
     copy_text(ui->modal_body, sizeof(ui->modal_body), text);
 }
 
+void modal_open_info(UiState *ui, const char *text)
+{
+    if (ui == NULL)
+        return;
+
+    ui->modal = UI_MODAL_INFO;
+    ui->modal_row = -1;
+    ui->modal_mode = -1;
+    copy_text(ui->modal_title, sizeof(ui->modal_title), "CANNOT CHANGE");
+    copy_text(ui->modal_body, sizeof(ui->modal_body), text);
+}
+
 static int draw_wrapped(const char *text, float x, float y, float max_w,
                         float px, uint32_t colour, int max_lines)
 {
@@ -108,7 +120,8 @@ void modal_draw(const UiState *ui)
         return;
 
     Rect r = {MODAL_X, MODAL_Y, MODAL_W, MODAL_H};
-    uint32_t accent = ui->modal == UI_MODAL_ERROR ? C_CYAN : C_YELLOW;
+    uint32_t accent =
+        ui->modal == UI_MODAL_CONFIRM ? C_YELLOW : C_CYAN;
 
     theme_panel(r, ui->modal_title, accent, CHROME_SATELLITE);
 

@@ -4,14 +4,16 @@
 #include <string.h>
 
 #include "core/plugin_editor.h"
+#include "core/tai_config.h"
 #include "gfx/font.h"
 #include "gfx/layout.h"
 #include "gfx/theme.h"
 
 /*
- * The editable ledger (D57). One panel, one row per path, grouped by the most
- * privileged line that names the path. The dot keeps its old meaning: it is
- * drawn only when the config actually activates the file.
+ * The editable ledger (D57, D62, D66). One panel, one row per path, grouped by
+ * the most privileged line that names the path. Each row carries a status badge
+ * and an action control so the user can see what the row is and whether the
+ * action is possible before pressing Cross.
  */
 
 #define PLUGIN_TOP (PANEL_TITLE_Y + LINE_H(PANEL_TITLE_PX) + SP_4)
@@ -22,13 +24,17 @@
 #define GROUP_GAP 10.0f
 #define PLUGIN_BOTTOM 16.0f
 #define CONFIG_LINE_H 14.0f
+#define PLUGIN_EMPTY_H 30.0f
 
 #define DOT_SIZE 6.0f
 #define DOT_DY 4.0f
-#define LEADER_DY 6.0f
-#define LEADER_GAP 8.0f
-#define LEADER_END_GAP 6.0f
-#define LEADER_DIM 0.6f
+#define NAME_GAP 12.0f
+#define CONTROL_W 78.0f
+#define CONTROL_H 16.0f
+#define CONTROL_GAP 10.0f
+#define BADGE_H 12.0f
+#define BADGE_PAD 5.0f
+#define BADGE_GAP 6.0f
 
 static int rows_in_section(PluginSection section)
 {
@@ -57,18 +63,25 @@ static int group_count(void)
 float plugins_content_height(void)
 {
     float h = PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2;
-    int groups = group_count();
 
-    h += (float)groups * GROUP_HEADER_H +
-         (float)g_editor.row_count * PLUGIN_STRIDE;
+    if (g_editor.row_count == 0) {
+        h += PLUGIN_EMPTY_H;
+    } else {
+        int groups = group_count();
 
-    if (groups > 1)
-        h += (float)(groups - 1) * GROUP_GAP;
+        h += (float)groups * GROUP_HEADER_H +
+             (float)g_editor.row_count * PLUGIN_STRIDE;
+
+        if (groups > 1)
+            h += (float)(groups - 1) * GROUP_GAP;
+    }
 
     if (g_editor.orphan_count > 0 || g_editor.orphans_unverified) {
         h += GROUP_GAP + GROUP_HEADER_H + PLUGIN_LINE_H;
         h += (float)g_editor.orphan_count * PLUGIN_LINE_H;
         if (g_editor.orphans_unverified)
+            h += PLUGIN_LINE_H;
+        if (g_editor.orphan_truncated)
             h += PLUGIN_LINE_H;
     }
 
@@ -82,6 +95,9 @@ int plugins_row_y(int row)
 {
     float y = PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2;
     int groups_drawn = 0;
+
+    if (g_editor.row_count == 0)
+        return (int)y;
 
     for (int s = 0; s < PLUGIN_SECTION_COUNT; ++s) {
         PluginSection section = (PluginSection)s;
@@ -119,7 +135,7 @@ int plugins_max_scroll(void)
 static uint32_t status_colour(EditorStatus status)
 {
     switch (status) {
-    case EDITOR_ENABLED:
+    case EDITOR_ACTIVATED:
         return C_GREEN;
     case EDITOR_MISSING:
     case EDITOR_PARTIAL:
@@ -133,80 +149,171 @@ static uint32_t status_colour(EditorStatus status)
     }
 }
 
+static float badge_width(const char *text)
+{
+    return font_width(text, PX_MICRO) + BADGE_PAD * 2.0f;
+}
+
+static void draw_badge(float x, float y, const char *text, uint32_t colour)
+{
+    float w = badge_width(text);
+
+    draw_rect(x, y, w, BADGE_H, draw_dim(colour, 0.16f));
+    font_text(text, x + BADGE_PAD, y + 2.0f, PX_MICRO, colour);
+}
+
+static void draw_control(float right, float y, int row)
+{
+    const char *label = editor_action_text(row);
+    int actionable = editor_row_actionable(row);
+    uint32_t colour = C_DIM;
+
+    if (actionable)
+        colour = strcmp(label, "ENABLE") == 0 ? C_GREEN : C_CYAN;
+
+    float x = right - CONTROL_W;
+
+    draw_rect(x, y - 1.0f, CONTROL_W, CONTROL_H,
+              actionable ? draw_dim(colour, 0.20f)
+                         : draw_dim(C_HAIR, 0.45f));
+
+    float tw = font_width(label, PX_MICRO);
+    font_text(label, x + (CONTROL_W - tw) * 0.5f, y + 2.0f, PX_MICRO,
+              actionable ? colour : C_DIM);
+}
+
+static void draw_name(const char *label, float x, float y, float avail)
+{
+    char display[PLUGIN_PATH_MAX];
+    float px = PX_LABEL;
+
+    tai_copy(display, sizeof(display), label);
+
+    if (font_width(display, px) > avail) {
+        px = PX_MICRO;
+        if (font_width(display, px) > avail) {
+            int max_chars = (int)((avail + px) / (6.0f * px));
+            if (max_chars < 3)
+                max_chars = 3;
+            if (max_chars < (int)sizeof(display)) {
+                display[max_chars - 2] = '.';
+                display[max_chars - 1] = '.';
+                display[max_chars] = '\0';
+            }
+        }
+    }
+
+    font_text(display, x, y, px, C_WHITE);
+}
+
 static void draw_row(const UiState *ui, Rect r, int index, float y)
 {
     const EditorRow *p = &g_editor.rows[index];
-    float name_x = r.x + PANEL_PAD + 10.0f;
+    float name_x = r.x + PANEL_PAD + NAME_GAP;
+    float right = r.x + r.w - PANEL_PAD;
 
     int duplicate = 0;
     for (int i = 0; i < g_editor.row_count; ++i) {
-        if (i != index && strcmp(g_editor.rows[i].name, p->name) == 0)
+        if (i != index && tai_ieq(g_editor.rows[i].name, p->name)) {
             duplicate = 1;
+            break;
+        }
     }
 
     const char *label = duplicate ? p->path : p->name;
+    uint32_t colour = status_colour(p->status);
 
     if (index == ui->selection) {
         uint32_t c = editor_row_actionable(index) ? C_WHITE : C_DIM;
         draw_rect(r.x + 4.0f, y - 2.0f, 2.0f, PLUGIN_STRIDE - 6.0f, c);
     }
 
-    font_text(label, name_x, y, PX_LABEL, C_WHITE);
+    draw_rect(r.x + PANEL_PAD, y + DOT_DY, DOT_SIZE, DOT_SIZE, colour);
 
-    if (p->status == EDITOR_ENABLED || p->status == EDITOR_PARTIAL) {
-        float dot_x = r.x + r.w - PANEL_PAD - DOT_SIZE;
-        float leader_x0 = name_x + font_width(label, PX_LABEL) + LEADER_GAP;
-        float leader_x1 = dot_x - LEADER_END_GAP;
+    draw_name(label, name_x, y, right - CONTROL_W - CONTROL_GAP - name_x);
+    draw_control(right, y, index);
 
-        if (leader_x1 > leader_x0)
-            draw_rect(leader_x0, y + LEADER_DY, leader_x1 - leader_x0, 1.0f,
-                      draw_dim(C_DIM, LEADER_DIM));
+    const char *status = editor_status_text(p->status);
+    float status_x = right - badge_width(status);
+    float badge_y = y + PLUGIN_DESC_DY - 2.0f;
 
-        draw_rect(dot_x, y + DOT_DY, DOT_SIZE, DOT_SIZE, C_GREEN);
+    draw_badge(status_x, badge_y, status, colour);
+
+    if (p->pending) {
+        float pending_x = status_x - BADGE_GAP - badge_width("PENDING");
+        draw_badge(pending_x, badge_y, "PENDING", C_YELLOW);
     }
 
-    char status[64];
-    snprintf(status, sizeof(status), "%s%s%s",
-             editor_status_text(p->status), p->locked ? "  LOCKED" : "",
-             p->pending ? "  PENDING" : "");
-
-    font_text_right(status, r.x + r.w - PANEL_PAD, y + PLUGIN_DESC_DY, PX_MICRO,
-                    status_colour(p->status));
-
-    font_text(p->desc[0] != '\0' ? p->desc : "N/A", name_x, y + PLUGIN_DESC_DY,
-              PX_MICRO, C_DIM);
+    font_text(p->desc[0] != '\0' ? p->desc : "N/A", name_x,
+              y + PLUGIN_DESC_DY, PX_MICRO, C_DIM);
 }
 
-static void draw_config_line(Rect r)
+static void draw_config_lines(Rect r)
 {
     char line[256];
+    uint32_t colour = C_DIM;
 
     if (g_editor.source[0] == '\0') {
-        snprintf(line, sizeof(line), "NO CONFIG");
-    } else if (g_editor.too_large) {
-        snprintf(line, sizeof(line), "%s  CONFIG TOO LARGE", g_editor.source);
-    } else if (g_editor.invalid) {
-        snprintf(line, sizeof(line), "%s  CONFIG INVALID", g_editor.source);
-    } else if (g_editor.lines_truncated) {
-        snprintf(line, sizeof(line), "%s  CONFIG TOO LONG", g_editor.source);
-    } else if (g_editor.read_only) {
-        snprintf(line, sizeof(line), "%s  READ ONLY", g_editor.source);
+        snprintf(line, sizeof(line), "NO CONFIG.TXT");
+        colour = C_YELLOW;
     } else if (g_editor.ignored[0] != '\0') {
-        snprintf(line, sizeof(line), "%s  ACTIVE  %s IGNORED",
-                 g_editor.source, g_editor.ignored);
+        snprintf(line, sizeof(line), "SOURCE %s  IGNORED %s", g_editor.source,
+                 g_editor.ignored);
     } else {
-        snprintf(line, sizeof(line), "%s", g_editor.source);
+        snprintf(line, sizeof(line), "SOURCE %s", g_editor.source);
     }
 
-    font_text(line, r.x + PANEL_PAD, r.y + PLUGIN_TOP, PX_MICRO, C_DIM);
+    font_text(line, r.x + PANEL_PAD, r.y + PLUGIN_TOP, PX_MICRO, colour);
 
-    const char *caption = g_editor.read_only
-                              ? "CONFIG IS READ ONLY"
-                              : (g_editor.backup_warning
-                                     ? "CHANGES APPLY NEXT BOOT  BACKUP WARNING"
-                                     : "CHANGES APPLY NEXT BOOT");
-    font_text(caption, r.x + PANEL_PAD, r.y + PLUGIN_TOP + CONFIG_LINE_H,
-              PX_MICRO, C_DIM);
+    const char *read_only = editor_readonly_reason();
+
+    if (read_only != NULL) {
+        snprintf(line, sizeof(line), "READ ONLY - %s", read_only);
+        colour = C_YELLOW;
+    } else {
+        snprintf(line, sizeof(line), "%d ROWS  %d ACTIVATED",
+                 g_editor.row_count, g_editor.activated_total);
+
+        size_t used = strlen(line);
+
+        if (g_editor.pending_count > 0 && used < sizeof(line)) {
+            snprintf(line + used, sizeof(line) - used, "  %d PENDING",
+                     g_editor.pending_count);
+            used = strlen(line);
+        }
+
+        if (g_editor.invalid && used < sizeof(line)) {
+            snprintf(line + used, sizeof(line) - used, "  CONFIG WARNING");
+            used = strlen(line);
+            colour = C_YELLOW;
+        }
+
+        if (g_editor.backup_warning && used < sizeof(line)) {
+            snprintf(line + used, sizeof(line) - used, "  BACKUP WARNING");
+            colour = C_YELLOW;
+        } else if (used < sizeof(line)) {
+            snprintf(line + used, sizeof(line) - used,
+                     "  ORIGINAL OK  SESSION OK");
+        }
+    }
+
+    font_text(line, r.x + PANEL_PAD, r.y + PLUGIN_TOP + CONFIG_LINE_H,
+              PX_MICRO, colour);
+}
+
+static void draw_empty_state(Rect r)
+{
+    float y = r.y + PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2;
+
+    if (g_editor.source[0] == '\0') {
+        font_text("NO CONFIG.TXT FOUND", r.x + PANEL_PAD, y, PX_MICRO,
+                  C_YELLOW);
+        font_text("EXPECTED UR0:TAI OR UX0:TAI", r.x + PANEL_PAD,
+                  y + PLUGIN_LINE_H, PX_MICRO, C_DIM);
+    } else {
+        font_text("NO PLUGIN ENTRIES IN THE ACTIVE CONFIG", r.x + PANEL_PAD, y,
+                  PX_MICRO, C_DIM);
+    }
 }
 
 void plugins_screen_draw(const UiState *ui)
@@ -220,9 +327,14 @@ void plugins_screen_draw(const UiState *ui)
 
     draw_set_clip(VIEW_X, VIEW_Y, VIEW_W, VIEW_H);
     theme_panel(r, "PLUGINS", C_CYAN, CHROME_LIST);
-    draw_config_line(r);
+    draw_config_lines(r);
 
-    float y = r.y + PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2;
+    if (g_editor.row_count == 0)
+        draw_empty_state(r);
+
+    float y =
+        r.y + PLUGIN_TOP + CONFIG_LINE_H * 2.0f + SP_2 +
+        (g_editor.row_count == 0 ? PLUGIN_EMPTY_H : 0.0f);
     int groups_drawn = 0;
 
     for (int s = 0; s < PLUGIN_SECTION_COUNT; ++s) {
@@ -258,8 +370,8 @@ void plugins_screen_draw(const UiState *ui)
         y += GROUP_GAP;
         if (y + LINE_H(PX_MICRO) > (float)VIEW_Y &&
             y < (float)(VIEW_Y + VIEW_H))
-            font_text_tracked("ORPHANS", r.x + PANEL_PAD, y, PX_MICRO, C_CYAN,
-                              1.0f);
+            font_text_tracked("INSTALLED - NOT IN CONFIG", r.x + PANEL_PAD, y,
+                              PX_MICRO, C_CYAN, 1.0f);
 
         y += GROUP_HEADER_H;
 
@@ -271,7 +383,8 @@ void plugins_screen_draw(const UiState *ui)
         } else {
             if (y + PLUGIN_LINE_H > (float)VIEW_Y &&
                 y < (float)(VIEW_Y + VIEW_H))
-                font_text("NOT LOADED", r.x + PANEL_PAD, y, PX_MICRO, C_DIM);
+                font_text("NOT LISTED IN THE ACTIVE CONFIG", r.x + PANEL_PAD,
+                          y, PX_MICRO, C_DIM);
         }
         y += PLUGIN_LINE_H;
 
@@ -286,6 +399,14 @@ void plugins_screen_draw(const UiState *ui)
                     snprintf(label, sizeof(label), "%s", g_editor.orphans[i]);
                 font_text(label, r.x + PANEL_PAD, y, PX_MICRO, C_DIM);
             }
+            y += PLUGIN_LINE_H;
+        }
+
+        if (g_editor.orphan_truncated) {
+            if (y + PLUGIN_LINE_H > (float)VIEW_Y &&
+                y < (float)(VIEW_Y + VIEW_H))
+                font_text("MORE FILES NOT SHOWN", r.x + PANEL_PAD, y,
+                          PX_MICRO, C_YELLOW);
             y += PLUGIN_LINE_H;
         }
     }

@@ -19,7 +19,7 @@ moves.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ COCKPIT      HOME  PLUGINS  L/R                  14:22:07    │
-│                    7 ACTIVE  KERNEL 3  SYSTEM 2  APPS 1 ...  │
+│              7 PLUGINS ONLINE  KERNEL 3  SYSTEM 2  APPS 1    │
 ├──────────────────────────────────────────────────────────────┤
 │ CORE 552×210                 │ POWER 360×210                  │
 │ ARM  333  GPU  166  BUS  166 │                                │
@@ -114,9 +114,9 @@ else must shrink.
 | `C_HAIR` | `#1C1D24` | scrollbar track, empty meter cells |
 | `C_DIM` | `#6E707E` | labels, absent values |
 | `C_WHITE` | `#EDEDF0` | numeric values |
-| `C_YELLOW` | `#FCEE0A` | primary — wordmark, hero accents, active tab, missing/partial status |
-| `C_CYAN` | `#2AD8E8` | machine data, group headers, boot rows |
-| `C_GREEN` | `#3BE07A` | status only: an enabled or partial plugin marker (D47) |
+| `C_YELLOW` | `#FCEE0A` | primary — wordmark, hero accents, active tab, warning, missing/partial status, pending |
+| `C_CYAN` | `#2AD8E8` | machine data, group headers, boot status, disable control |
+| `C_GREEN` | `#3BE07A` | status only: activated plugin, online count and dot, enable control |
 
 `C_DIM` was `#43444F` until the host preview measured it at roughly 2:1 contrast
 against `C_PANEL` — unreadable at 10 px on a 5-inch screen, and the clock
@@ -157,7 +157,7 @@ A glyph is `5·px` wide, `7·px` tall, advancing `6·px`.
 
 | Role | px | Box | Used for |
 |---|---|---|---|
-| micro | 1.5 | 7.5 × 10.5 | units, charging state, trace caption, plugin description, status, group header, modal body |
+| micro | 1.5 | 7.5 × 10.5 | units, charging state, trace caption, plugin description, status badge, action label, group header, modal body |
 | label | 2 | 10 × 14 | metric names, panel titles |
 | value | 3 | 15 × 21 | numbers in a row |
 | hero | 4 | 20 × 28 | wordmark |
@@ -249,61 +249,87 @@ row is never acceptable (D41).
 
 The 64 px header carries the tabs between the wordmark and the clock. `HOME` and
 `PLUGINS` are label-scale, 1 px tracked; the active tab is `C_YELLOW` with a 2 px
-underline at y 36, the inactive tab is `C_DIM`, and `L/R` sits beside them. The
-HOME summary shares the hazard line at y 48: total activated plugins, then the
-non-empty groups, then the pending count. It is micro and dim, right-aligned to
-the margin. A fault replaces the summary with the hazard band; the tabs stay.
+underline at y 36, the inactive tab is `C_DIM`, and `L/R` sits beside them.
 
-The summary drops the word `ACTIVE` and then group counts from `TITLES` upward
-when the run would cross the tab block. The total and the pending token always
-survive. Because the summary is in the header, HOME keeps both panel rows at
-scroll 0 and has no scrollbar (D60).
+The HOME summary owns the line at y 42, below the tabs and the clock. The head is
+label scale: `7 PLUGINS ONLINE`, singular for one, in `C_GREEN` when the count is
+non-zero and `C_WHITE` at zero. A 6 px green dot sits to its left. The detail is
+micro `C_DIM` to the left of the head: the non-empty group counts, with the
+pending count first in `C_YELLOW`. The whole run is right-aligned to the margin.
+
+When the run would cross the tab block the group counts drop from `TITLES`
+upward; the total and pending token always survive. A config problem replaces
+the head with `NO CONFIG.TXT`, `CONFIG UNREADABLE`, `CONFIG TOO LARGE`, or keeps
+the count and adds `CONFIG WARNING`, all in `C_YELLOW`. The hazard band is at
+y 56, the header's bottom 8 px, so a fault is below the summary and never covers
+it (D60, D63).
+
+Because the summary is in the header, HOME keeps both panel rows at scroll 0 and
+has no scrollbar.
 
 ### PLUGINS tab
 
 The tab is a full-width panel at x 18, w 924, starting at canvas y 0. Its height
 is computed, not compiled in: `41 + 14 × 2 + 8 + 26 × groups + 52 × rows +
-10 × (groups − 1)` plus the orphan section and a 16 px bottom margin. The band
-clips it and the scrollbar follows `plugins_max_scroll()`.
+10 × (groups − 1)` plus the empty state or orphan section and a 16 px bottom
+margin. The band clips it and the scrollbar follows `plugins_max_scroll()`.
 
-The panel header names the active config and, when both exist, the ignored one.
-Under it, `CHANGES APPLY NEXT BOOT` states the effect; a read-only or invalid
-config replaces that line with `CONFIG IS READ ONLY`.
+The panel header has two lines. The first names the active config and, when both
+exist, the ignored one: `SOURCE ur0:tai/config.txt  IGNORED ux0:tai/config.txt`.
+The second is the state: `9 ROWS  7 ACTIVATED  0 PENDING  ORIGINAL OK  SESSION OK`.
+A read-only file replaces it with `READ ONLY - <reason>`; a backup failure adds
+`BACKUP WARNING` but leaves the rows editable.
 
 Rows are grouped by the most privileged line that names the path: KERNEL,
 SYSTEM (`*main`), SYSTEM APPS (`*NPXS*`), ALL TITLES (`*ALL`), and TITLES. Each
 non-empty group opens with a micro, 1 px-tracked cyan header. A path listed under
 several targets is one row (D51, D56).
 
-A row is a two-line entry: the display name at label scale, then the catalog
-description or `N/A` at micro scale, with the status right-aligned on the second
-line. The name is the basename; when two rows share a basename the full path is
-shown so the two files are distinguishable. The green dot and leader belong only
-to `ENABLED` and `PARTIAL` rows; `DISABLED`, `MISSING`, and `NOT REACHED` end the
-leader without a dot, and `BOOT` is locked. Status tones: `C_GREEN` enabled,
-`C_DIM` disabled/not reached, `C_YELLOW` missing/partial, `C_CYAN` boot. A
-pending change appends `PENDING`; a locked row appends `LOCKED` (D58).
+A row is a two-line entry. The first line is a 6 px status square, the display
+name at label scale (micro and truncated if it does not fit), and the action
+control at the right. The second line is the catalog description or `N/A` at
+micro scale on the left and the status badge on the right. The name is the
+basename; when two rows share a basename the full path is shown.
+
+Status badges are `ACTIVATED` (`C_GREEN`), `DISABLED` (`C_DIM`), `MISSING`
+(`C_YELLOW`), `PARTIAL` (`C_YELLOW`), `NOT REACHED` (`C_DIM`), and `BOOT`
+(`C_CYAN`). The badge is a 12 px tinted fill in the status colour with the label
+in the same colour. A pending change adds a yellow `PENDING` badge to its left
+(D66).
+
+The action control is a 78 × 16 box at the first line's right. `ENABLE` is
+`C_GREEN`, `DISABLE` is `C_CYAN`; `LOCKED`, `MISSING`, `BOOT`, and `--` are
+`C_HAIR` fill with `C_DIM` text and perform nothing. Cross on a greyed control
+opens `CANNOT CHANGE` with `editor_action_reason()`; it never writes. A missing
+active row can be disabled; a missing inactive row cannot be enabled (D66).
 
 The selection cursor is a 2 px `C_WHITE` left bar spanning both lines, dimmed on
-a row the policy will not act on. The cursor owns the scroll; the view moves to
-keep it inside the band.
+a row the policy will not act on. Every row is selectable. The cursor owns the
+scroll; at the last row a further Down scrolls the canvas to the orphan section,
+and Cross is ignored while the selected row is off-screen.
 
-The orphan section follows the last group. Its header is followed by
-`NOT LOADED` when the active config and boot config were fully read; when either
-was not, `EXCLUSIONS UNVERIFIED` replaces that caption. Files in a shadowed
-directory are prefixed `SHADOWED`. Orphans are read-only (D57).
+The orphan section follows the last group under the header
+`INSTALLED - NOT IN CONFIG`. Its caption is `NOT LISTED IN THE ACTIVE CONFIG`
+when the listing is complete; a failed directory read replaces it with
+`EXCLUSIONS UNVERIFIED`. `boot_config.txt` is not consulted, so the section never
+claims a file is not loaded by Enso. Files in a shadowed directory are prefixed
+`SHADOWED`. The list is sorted, capped at 32, and states `MORE FILES NOT SHOWN`
+when the cap is reached. Orphans are read-only (D61).
 
 A confirmation is a centred 600 × 220 `theme_panel` with `CHROME_SATELLITE`, the
-action in the title, the message wrapped at the panel inset in micro scale, and
-`CROSS CONFIRM  CIRCLE CANCEL` at the bottom. An error uses the same panel with
-`NOT WRITTEN` and `CROSS CLOSE`. The modal is drawn after the FRAME strip, so it
-is the topmost surface.
+action and file in the title (`DISABLE STORAGEMGR.SKPRX`), the message wrapped at
+the panel inset in micro scale, and `CROSS CONFIRM  CIRCLE CANCEL` at the bottom.
+An error uses the same panel with `NOT WRITTEN` and `CROSS CLOSE`; an information
+modal uses `CANNOT CHANGE`. The modal is drawn after the FRAME strip, so it is
+the topmost surface.
 
-Every session rotates three backups before the config is read:
-`<path>.bak`, `<path>.1.bak`, and `<path>.2.bak`, for the active and shadowed
-plugin configs and `boot_config.txt`. A failed active-config backup makes the
-manager read-only; a failed shadowed or boot backup is a warning. The backup
-files are excluded from the orphan list (D57).
+The active config has two snapshots: `config.txt.original` is written once and
+never overwritten; `config.txt.session` is the session-start file and is
+rewritten each session. No `.bak`, `.1.bak`, or `.2.bak` is created. The adapter
+writes a verified `.new`, moves the original to `.old`, moves the sibling into
+place, and reads the live file back; a failure restores the original. The raw
+transaction files are excluded from the orphan list (D61, D64). `boot_config.txt`
+is never opened, read, copied, or written.
 
 Traces are a 2 px line, not a filled area. At 200 samples across ~500 px an
 area chart collapses into a solid block that hides the shape it exists to show
@@ -350,5 +376,5 @@ Two devices that would otherwise be decoration are load-bearing instead:
 - Do not add an icon, glyph, or shape that encodes nothing.
 - Do not fill a trace as an area. A 2 px line, scaled to a printed axis.
 - Do not colour a number. Emphasis in a readout is size, never hue.
-- Do not use `C_GREEN` anywhere but the plugin dot. It means "loaded", not
-  "look here".
+- Do not use `C_GREEN` for a decorative highlight. It means "activated" or
+  "possible action", never "look here".

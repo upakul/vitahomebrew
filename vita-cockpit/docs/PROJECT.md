@@ -21,12 +21,12 @@ platform cannot report is omitted rather than approximated.
 
 | Region | Contents |
 |---|---|
-| HOME header | wordmark, clock, HOME/PLUGINS tabs, activated-plugin summary |
+| HOME header | wordmark, clock, HOME/PLUGINS tabs, `N PLUGINS ONLINE` summary with group counts |
 | CORE | ARM, GPU, and bus clock; free user / CDRAM / physical-contiguous pools; 20 s memory trace |
 | STORAGE | `ux0:`, `uma0:` used and total, with the unit chosen from each volume's size (GB or MB), segmented meters |
 | POWER | battery percent, charging state, temperature, voltage, cycles, health |
 | SYSTEM | firmware string, app run time, device model |
-| PLUGINS tab | the full config ledger, grouped by load target, with enable/disable, lock/warn confirmations, pending state, and read-only orphans |
+| PLUGINS tab | the full config ledger, grouped by load target, with status badges, greyed/active controls, lock/warn confirmations, pending state, read-only unlisted files, and the two config snapshots |
 | FRAME | measured FPS, frame time, 20 s trace |
 
 The wall clock and the wordmark are header chrome, not a panel, so identity
@@ -36,7 +36,9 @@ appears exactly once on screen.
 
 - Network, audio, camera, motion.
 - Installing, deleting, or downloading plugin files.
-- Editing `ur0:tai/boot_config.txt` or any Enso boot file.
+- Editing, reading, copying, or backing up `ur0:tai/boot_config.txt` or any Enso
+  boot file. The app never opens it; boot modules are locked by the three known
+  names only.
 - A third tab, batch toggle, presets, or a config diff/restore UI.
 - Any kernel plugin. This is a userland app.
 
@@ -89,7 +91,7 @@ makes "which build is on the Vita?" answerable.
 The artifact is named:
 
 ```
-build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b28.vpk
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b34.vpk
 ```
 
 | Part | Source | Changes |
@@ -128,18 +130,18 @@ community knowledge.
 
 | Area | Status |
 |---|---|
-| Builds and packages | `[V]` clean build, 108 KB VPK (b28), no warnings |
-| Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh`, 191 checks |
-| Plugin list (`ur0:`/`ux0:tai/config.txt`) | `[V]` host harness keeps a 19-entry real config in full and groups it as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; host tests cover commented entries, long names, section mapping, priority merge, the 64-entry ceiling, full-path duplicate rows, `*!` halts, lock/warn policy, and backup rotation |
+| Builds and packages | `[V]` clean build, 111.6 KB VPK (b34), no warnings |
+| Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh`, 314 checks |
+| Plugin list (`ux0:` first, `ur0:` fallback) | `[V]` host harness keeps a 19-entry real config in full and groups it as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; host tests cover BOM, commented entries, long names, section mapping, priority merge, the 64-entry ceiling, full-path duplicate rows, `*!` halts, lock/warn policy, the two snapshots, and the exact `#` edit |
 | Clocks, memory, power APIs declared in SDK | `[V]` header inspection |
 | Clock row follows a runtime clock change | `[C]` — the getters are re-read every sample, so an overclock applied by a plugin should appear within ~100 ms without a restart; not yet observed on hardware |
 | `SceIoDevInfo` layout | `[V]` `psp2common/kernel/iofilemgr.h`, 24 bytes |
 | `sceIoDevctl("ux0:", 0x3001, …)` command | `[V]` `psp2/io/devctl.h` demonstrates it verbatim |
 | Storage result unit (bytes) | `[C]` — the one claim still unconfirmed |
 | Device model codes | `[V]` `psp2common/kernel/sysmem.h` |
-| Screen layout and typography | `[V]` host preview render, nine states; tabs, summary, ledger, modal, and CORE/POWER outlines at scroll 0 (D53, D54, D60) |
-| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the tabbed build b28 is not on hardware yet |
-| Config write path | `[C]` the adapter's `.new` write, read-back, and rename-over are implemented and build; host tests exercise the fake's in-place overwrite, not the adapter transaction, and `sceIoRename` replacement is unverified on the target |
+| Screen layout and typography | `[V]` host preview render, 13 states; header summary, badges, controls, modal, and CORE/POWER outlines at scroll 0 (D53, D54, D63, D66) |
+| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the fixed tabbed build b34 is not on hardware yet |
+| Config write path | `[C]` the adapter's rename-away swap and live read-back are implemented and build; host tests exercise the same transaction in the fake, not the SDK calls, and the target's rename semantics are unverified |
 | STORAGE reads | `[V]` both volumes report on hardware under `UNSAFE` (D42); `ux0:` also works on the safe build via `sceAppMgrGetDevInfo` (D38) |
 | Behaviour not listed above | unverified |
 
@@ -164,16 +166,20 @@ Panels degrade, they do not crash.
   is shown as absent, not as an error. A mount whose call *failed* shows the
   return code, so a permission problem is not mistaken for a missing card.
 - A config write that fails leaves the original file untouched and shows
-  `WRITE FAILED`; a failed session backup makes the plugin manager read-only
-  rather than editing without a net.
-- A config that is too large, invalid, or unreadable is shown read-only with the
-  reason, never rewritten from a truncated read.
+  `WRITE FAILED`; a snapshot failure shows `BACKUP WARNING` but never locks the
+  editor.
+- A config that is too large, too long, or unreadable is shown read-only with the
+  reason, never rewritten from a truncated read. A path before the first section
+  is a warning, not a lock.
+- Only the active `config.txt` and its `config.txt.original` /
+  `config.txt.session` snapshots are written. `boot_config.txt` is never opened,
+  read, copied, renamed, or written.
 
 ## 7. Roadmap
 
 | Step | Adds | Needs |
 |---|---|---|
-| v1 | the dashboard and the plugin manager | b28 builds and is host-tested; the tabbed UI is pending the console check |
+| v1 | the dashboard and the plugin manager | b34 builds and is host-tested; the fixed tabbed UI is pending the console check |
 | v2 | app inventory, per-title storage | `sceAppMgrGetAppInfo`, directory walk of `ux0:app` |
 | v3 | network status | `SceNetCtl` |
 | v4 | theme switching, a second visual language | a theme abstraction in `gfx/theme` |
