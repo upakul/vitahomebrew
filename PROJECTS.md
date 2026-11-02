@@ -23,7 +23,7 @@ after every job** — a job is not finished until this file reflects it.
 |---|---|---|---|---|
 | `vita-cap-test` | `built` | 2026-11-02 — artifact renamed to `cap-test-v<version>-b<build>.vpk` with an auto-incrementing build number | Run on hardware; confirm I/O, PCM audio, WiFi/DNS/HTTP | Unsafe `...0001`. 2.6 MB VPK. |
 | `vita-kernel-demo` | `built` | 2026-11-02 — artifact renamed to `kernel-demo-v<version>-b<build>.vpk`; the VPK CMake target is now interpolated from the artifact name | On-demand load test; confirm hook UID and the open counter | Not in `*KERNEL`. 3.65 NID unverified. |
-| `vita-cockpit` | `verified` | 2026-11-02 — plugin ledger groups by load target (D51) and prints N/A for unknown descriptions (D52); the 19-entry config shows KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1 | Flash b12 and confirm the grouped ledger and N/A rows on the OLED | `UNSAFE` default. 87 host checks. A 19-row render is 4,423 draw calls. |
+| `vita-cockpit` | `verified` | 2026-11-02 — UI fix (D53): header hairline removed and the scroll band inset 12 px, so the CORE/POWER outlines are whole and both panel rows fit at scroll 0 | Flash b13 and check the top gap, the missing divider, and the grouped ledger on the OLED | `UNSAFE` default. 87 host checks. 4,423 draw calls at 19 rows. |
 
 ---
 
@@ -33,12 +33,13 @@ Newest first. One line per job: date, project, what changed. Keep the board
 above as the summary; this is the history.
 
 Build numbers before 2026-11-02 predate the counter reset that pruned the stale
-VPKs; an old `b7`, or the `b10` in the 2026-11-02 storage-error entry, is not
-the `b8`/`b9`/`b12` built after it. The date and the entry around it
-distinguish them.
+VPKs; an old `b7`, or the `b10` in the 2026-11-02 storage-error entry, predates
+the counter reset. The date and the entry around it distinguish it from the
+current `b8`+ builds.
 
 | Date | Project | Change |
 |---|---|---|
+| 2026-11-02 | `vita-cockpit` | Removed the header hairline and inset the scrolling band by 12 px (band 64..472, content starts at 76), so CORE/POWER outlines are no longer clipped and both panel rows fit at scroll 0; scroll range unchanged (D53). |
 | 2026-11-02 | `vita-cockpit` | Grouped the plugin ledger by load target — KERNEL, SYSTEM, SYSTEM APPS, ALL TITLES, TITLES — with one row per file under its most privileged section (D51), and made an unknown description render `N/A` instead of a blank line (D52). Real 19-entry config: 9/8/1/1. 87 checks. |
 | 2026-11-02 | `vita-cockpit` | Fixed the plugin list dropping entries: `PLUGINS_MAX` 12 → 64, name field 32 → 48 and path 64 → 96, duplicates checked before the ceiling, and a `MORE PLUGINS NOT SHOWN` notice if the array ever fills (D50). A real 19-entry config now parses 19/19; 74 checks. |
 | 2026-11-02 | workspace | Published the workspace to `github.com/upakul/vitahomebrew`: root `README.md`, MIT `LICENSE`, and a `.gitignore` that excludes the SDK, build output, crash dumps, and the third-party parser clone. |

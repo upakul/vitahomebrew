@@ -82,7 +82,7 @@ makes "which build is on the Vita?" answerable.
 The artifact is named:
 
 ```
-build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b12.vpk
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b13.vpk
 ```
 
 | Part | Source | Changes |
@@ -130,7 +130,7 @@ community knowledge.
 | `sceIoDevctl("ux0:", 0x3001, …)` command | `[V]` `psp2/io/devctl.h` demonstrates it verbatim |
 | Storage result unit (bytes) | `[C]` — the one claim still unconfirmed |
 | Device model codes | `[V]` `psp2common/kernel/sysmem.h` |
-| Screen layout and typography | `[V]` host preview render, four states |
+| Screen layout and typography | `[V]` host preview render, four states; CORE/POWER outlines whole at scroll 0 (D53) |
 | Renders on hardware | `[V]` 2026-11-02: text, clocks, memory, power, identity and frame all draw on the console |
 | STORAGE reads | `[V]` both volumes report on hardware under `UNSAFE` (D42); `ux0:` also works on the safe build via `sceAppMgrGetDevInfo` (D38) |
 | Behaviour not listed above | unverified |

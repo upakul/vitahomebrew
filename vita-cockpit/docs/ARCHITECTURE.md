@@ -222,7 +222,7 @@ extern const int g_layout_count;
 /* Height of the scrolling canvas, derived from the lowest panel edge. */
 int layout_canvas_height(void);
 
-/* Largest valid scroll offset: the canvas height minus one viewport. */
+/* Largest valid scroll offset: the padded canvas minus one viewport. */
 int layout_max_scroll(void);
 
 /* Resize the self-sizing PLUGINS region. */

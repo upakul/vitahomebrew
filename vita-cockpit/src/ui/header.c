@@ -20,7 +20,6 @@
 
 #define CLOCK_Y 23.0f
 
-#define HAIRLINE_Y 47.0f
 #define HAZARD_Y 48.0f
 #define HAZARD_H 8.0f
 
@@ -113,8 +112,6 @@ void header_draw(void)
 {
     draw_wordmark();
     draw_clock();
-
-    draw_rect(0.0f, HAIRLINE_Y, (float)SCREEN_W, 1.0f, C_HAIR);
 
     /* D15: only ever drawn for a real fault, and it never reflows the layout. */
     if (g_metrics.alert)

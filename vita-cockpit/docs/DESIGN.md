@@ -50,7 +50,7 @@ appears twice.
 
 | Region | x | y | w | h |
 |---|---|---|---|---|
-| Header | 0 | 0 | 960 | 74 |
+| Header | 0 | 0 | 960 | 64 |
 | CORE | 18 | 0 | 552 | 210 |
 | POWER | 582 | 0 | 360 | 210 |
 | STORAGE | 18 | 222 | 552 | 172 |
@@ -59,11 +59,14 @@ appears twice.
 | FRAME | 18 | 482 | 924 | 44 | (pinned, screen coords) |
 
 Panel `y` is canvas coordinates; the app offsets them by the scroll and clips to
-the viewport at y 74..470. The canvas is `406 + plugins_panel_height() + 12`:
+the band at y 64..472. The band carries a 12 px top inset, so the first panel
+starts at screen y 76 and its outline is whole; the inset scrolls away. The
+canvas is `406 + plugins_panel_height() + 12`:
 729 for the four-plugin preview (two groups), 1,581 for the nineteen-plugin
 console config (four groups).
 
-Constants: `MARGIN 18`, `GAP 12`, `SP_3 12`. Both columns share both seams --
+Constants: `MARGIN 18`, `GAP 12`, `SP_3 12`, `VIEW_TOP_GAP 12`. Both columns
+share both seams --
 row one is 210 tall, row two 172 -- so the 12 px gap between the rows runs
 unbroken across the screen and both columns end at canvas y 394. The strip
 begins at screen y 482 and ends at 526, leaving an 18 px bottom margin.
@@ -111,7 +114,7 @@ else must shrink.
 |---|---|---|
 | `C_FIELD` | `#000000` | screen field |
 | `C_PANEL` | `#0D0E12` | panel fill |
-| `C_HAIR` | `#1C1D24` | hairlines, empty meter cells |
+| `C_HAIR` | `#1C1D24` | scrollbar track, empty meter cells |
 | `C_DIM` | `#6E707E` | labels, absent values |
 | `C_WHITE` | `#EDEDF0` | numeric values |
 | `C_YELLOW` | `#FCEE0A` | primary — wordmark, hero accents |

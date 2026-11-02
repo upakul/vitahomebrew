@@ -18,9 +18,18 @@
  * the header or the status strip (D45).
  */
 #define VIEW_X 0
-#define VIEW_Y 74
+#define VIEW_Y 64
 #define VIEW_W 960
-#define VIEW_H 396
+#define VIEW_H 408
+
+/*
+ * Space between the top of the scrolling band and the first panel. A panel
+ * outline is 2 px thick, so a panel starting exactly at the band edge had its
+ * upper half clipped and looked like it began under the header. The header's
+ * painted content ends at the hazard strip (y 56); VIEW_Y leaves 8 px of air
+ * below it, and this inset keeps the panel outline whole.
+ */
+#define VIEW_TOP_GAP 12
 
 /* Distance from the screen edge to the panel area. */
 #define MARGIN 18

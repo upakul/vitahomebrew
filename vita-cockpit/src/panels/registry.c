@@ -95,7 +95,7 @@ int layout_canvas_height(void)
 
 int layout_max_scroll(void)
 {
-    int max = layout_canvas_height() - VIEW_H;
+    int max = VIEW_TOP_GAP + layout_canvas_height() - VIEW_H;
 
     return max > 0 ? max : 0;
 }

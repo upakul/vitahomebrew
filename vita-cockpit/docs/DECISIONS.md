@@ -890,3 +890,27 @@ empty, which pins the boundary between data and presentation.
 **Rejected:** writing `N/A` into `PluginInfo.desc` during the scan. It would
 make an unknown plugin indistinguishable from one whose catalog text is
 literally "N/A", and it puts UI copy in the sampling layer.
+
+## D53 — Inset the scrolling band, and drop the header hairline
+
+**Status:** Accepted
+**Context:** CORE and POWER started at the viewport top (y 74), exactly where
+the 2 px panel outline is drawn. The scissor cut the upper half of that outline,
+so the two panels looked like they continued under the header. A 1 px `C_HAIR`
+rule at y 47 also ran under the clock and read as an unearned divider; the
+header's only rule should be the hazard strip, and only on a fault.
+**Decision:** The scroll band starts at y 64, eight pixels below the hazard
+strip, and ends at 472. Content is inset by `VIEW_TOP_GAP` (12), so the first
+panel begins at screen y 76 with a whole outline. `layout_max_scroll()` adds the
+inset, which keeps the scroll range identical to the old 396 px band. The
+scrollbar track starts at the content top (76), not the band top. The hairline
+is deleted; `header_draw()` paints the wordmark, the clock, and the hazard strip
+only.
+**Consequence:** At scroll 0 the two-row canvas sits at 76..470, with 12 px of
+air before the FRAME strip at 482. While scrolling, content clips at 64, eight
+pixels below the hazard, and the inset scrolls away. `C_HAIR` remains the
+scrollbar track and the empty meter cell, nothing else.
+**Rejected:** raising `VIEW_Y` while keeping the band 396 px tall. The outline
+would be clipped at the new edge, and shrinking `VIEW_H` to compensate would cut
+the bottom of STORAGE and SYSTEM at scroll 0. Moving FRAME down would buy the
+room from the bottom margin the layout already spends.

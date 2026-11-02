@@ -75,12 +75,13 @@ untested.
 
 | Check | Result |
 |---|---|
-| App build | Success, 89 KB VPK (b12) |
+| App build | Success, 89 KB VPK (b13) |
 | Auth ID | `0x2F00000000000001` (UNSAFE default, D42); `0x2F00000000000002` with `--safe` |
 | Imports | `ScePower`, `SceSysmem`, `SceIofilemgr`, `SceKernelModulemgr`, `SceRtc`, `SceCtrl`, `SceLibKernel`; `SceDisplay`, `SceGxm`, `SceSysmodule`, `SceAppMgr`, `SceCommonDialog` via libvita2d |
 | Host tests | 87 checks, 0 failures (`tools/test/run.sh`) |
 | Plugin list | `[V]` a real 19-entry config parses 19/19 and groups as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; tests cover comments, long names, section mapping, priority merge, the 64-entry ceiling and its notice |
 | Host preview render | Four states rendered through the shipped composition (`tools/preview/run.sh`) |
+| Header and band | `[V]` host preview: no header hairline; band 64..472 with a 12 px inset, content at 76; both panel rows fit at scroll 0 (D53) |
 | Plugin descriptions | 155 rows: every AutoPlugin2 Vita catalog path plus iTLS, libshacccg, YAMT and HENkaku; 10 rows marked `[C]` for missing or corrected text |
 | Runtime | `[V]` 2026-11-02: all panels render on the 3.65 console |
 | `SceIoDevInfo` | Uses the SDK type, 24 bytes, not the 16-byte community struct |
