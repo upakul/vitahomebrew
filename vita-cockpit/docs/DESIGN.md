@@ -273,10 +273,10 @@ bottom:
   SYSTEM 2  SYSTEM APPS 1  ALL TITLES 1  TITLES 0`. A config with no activated
   plugins says `NO PLUGINS LISTED` instead of an empty line.
 
-`N PENDING` sits right-aligned on the group line in `C_YELLOW`, and
-`CONFIG WARNING` follows it when a stray path or a truncated row was seen. The
-count is always the launch set: a pending edit has not changed what taiHEN
-loaded, so it must not change the number (D59, D67).
+`CONFIG WARNING` sits right-aligned on the group line in `C_YELLOW` when a
+stray path or a truncated row was seen. The count is always the launch set:
+what taiHEN loaded at boot, with no pending overlay. A pending edit is state
+belonging to the PLUGINS tab that made it, not a HOME reading (D68).
 
 A config problem replaces the count with `--` and names the state beside it:
 `NO CONFIG.TXT` with `UR0:TAI OR UX0:TAI`, `CONFIG UNREADABLE` or

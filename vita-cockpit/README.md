@@ -37,14 +37,14 @@ change written to the active config and applied on the next boot.
 - **Auth:** UNSAFE eboot by default (`0x2F00000000000001`), because `uma0:`
   capacity needs `sceIoDevctl` (D42). `./build.sh --safe` builds the
   restricted `0x2F00000000000002` variant.
-- **Status:** builds and packages (111.1 KB VPK, b38), runs on the 3.65 console at
+- **Status:** builds and packages (111.1 KB VPK, b39), runs on the 3.65 console at
   b13; 316 host checks and 15 previews pass. The fixed tabbed build is pending
   the on-console check.
 
 The HOME `PLUGINS` block sits below STORAGE and SYSTEM, spanning both columns. It
 shows the activated count at primary scale, `PLUGINS ONLINE`, the non-empty group
-counts, and any pending or config warning. It reports the launch set and is
-read-only; scroll HOME down to it. Every edit happens on the PLUGINS tab.
+counts, and a config warning. It reports the launch set and is read-only; scroll
+HOME down to it. Pending edits appear only on the PLUGINS tab that made them.
 
 The plugin screen resolves the active config the way taiHEN does — `ux0:` first,
 `ur0:` fallback — and names any ignored file. It lists every path in that config,
@@ -81,7 +81,7 @@ stage that was refused: `OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`,
 ./build.sh --safe     # restricted eboot, marked -safe in the filename
 ```
 
-Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b38.vpk`.
+Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b39.vpk`.
 The build number counts distinct builds and is kept in `BUILD_NUMBER`: unchanged
 sources reuse the number, and only the newest VPK is kept (D46). Upload it with:
 
@@ -126,8 +126,8 @@ and the same fake platform, writing 15 scenes under `build/preview/`:
 `preview-plugins-bottom.png`, `preview-warning.png`, `preview-missing.png`,
 `preview-backup-warning.png`, `preview-groups.png`, `preview-duplicate.png`,
 `preview-confirm.png`, `preview-write-failure.png`, `preview-readonly.png`, and
-`preview-home-pending.png`. Each scene is produced by driving the fake port
-through the real sampler and policy, so a PNG proves the policy ran. Every
+`preview-home-plugins-warning.png`. Each scene is produced by driving the fake
+port through the real sampler and policy, so a PNG proves the policy ran. Every
 number in it is synthetic, so it proves nothing about the device — only about
 the screen.
 

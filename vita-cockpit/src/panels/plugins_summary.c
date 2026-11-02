@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 
-#include "core/plugin_editor.h"
 #include "core/plugins.h"
 #include "gfx/font.h"
 
@@ -13,19 +12,18 @@
  * reports the launch set: the plugins taiHEN actually loaded, grouped by the
  * load target that named them.
  *
- * A pending edit has not changed what is running yet, so it is a separate
- * yellow token beside the counts (D59). The block does not list every plugin;
- * that is the PLUGINS tab's job. Here it answers one question — how many
- * plugins are online, and where do they sit — in one glance.
+ * HOME shows only what is running. A pending edit has not taken effect yet and
+ * belongs to the PLUGINS tab that made it, so the block carries no pending
+ * token (D68). The block does not list every plugin either; that is the
+ * ledger's job. Here it answers one question — how many plugins are online, and
+ * where do they sit — in one glance.
  */
 
 #define SUMMARY_NUMBER_Y PANEL_BODY_Y
 #define SUMMARY_LABEL_DY (LINE_H(PX_PRIMARY) - LINE_H(PX_LABEL))
 #define SUMMARY_LABEL_GAP SP_4
 #define SUMMARY_GROUPS_Y (SUMMARY_NUMBER_Y + LINE_H(PX_PRIMARY) + SP_2)
-#define SUMMARY_BADGE_GAP SP_4
 #define SUMMARY_TEXT_MAX 192
-#define SUMMARY_BADGE_MAX 40
 
 static const PluginSection GROUP_ORDER[PLUGIN_SECTION_COUNT] = {
     PLUGIN_SECTION_KERNEL, PLUGIN_SECTION_SYSTEM, PLUGIN_SECTION_SYSTEM_APP,
@@ -80,25 +78,13 @@ static void draw_groups(Rect r)
     font_text(line, r.x + PANEL_INSET, r.y + SUMMARY_GROUPS_Y, PX_MICRO, C_DIM);
 }
 
-/*
- * Pending and config warnings share the right end of the group line. Pending
- * comes first so it reads as the nearer state: a file change that has not taken
- * effect yet.
- */
-static void draw_badges(Rect r, int warning)
+/* A config warning shares the right end of the group line. */
+static void draw_warning(Rect r)
 {
     float right = r.x + r.w - PANEL_INSET;
     float y = r.y + SUMMARY_GROUPS_Y;
-    char buf[SUMMARY_BADGE_MAX];
 
-    if (g_editor.pending_count > 0) {
-        snprintf(buf, sizeof(buf), "%d PENDING", g_editor.pending_count);
-        font_text_right(buf, right, y, PX_MICRO, C_YELLOW);
-        right -= font_width(buf, PX_MICRO) + SUMMARY_BADGE_GAP;
-    }
-
-    if (warning)
-        font_text_right("CONFIG WARNING", right, y, PX_MICRO, C_YELLOW);
+    font_text_right("CONFIG WARNING", right, y, PX_MICRO, C_YELLOW);
 }
 
 static void draw_hero(Rect r, const char *number, const char *headline,
@@ -156,8 +142,8 @@ static void draw_plugins_summary(const Panel *self, Rect r)
 
     draw_hero(r, number, headline, number_colour, headline_colour);
 
-    if (g_plugins.config_found && !g_plugins.config_too_large)
-        draw_badges(r, warning);
+    if (g_plugins.config_found && !g_plugins.config_too_large && warning)
+        draw_warning(r);
 }
 
 const Panel panel_plugins_summary = {"PLUGINS", C_CYAN, draw_plugins_summary};

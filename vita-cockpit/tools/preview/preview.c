@@ -360,13 +360,17 @@ int main(int argc, char **argv)
     if (!render(dir, "preview-readonly.png", 5.5f, &ui))
         return 1;
 
-    /* HOME after a toggle: counts stay at the launch set, pending appears. */
+    /* The block with a config warning: the count stays, the stray path is named. */
     reset_scene(&ui);
-    row = editor_row_for_path("ur0:tai/kubridge.skprx");
-    (void)editor_toggle(row, 0, err, (int)sizeof(err));
+    fake_add_file("ur0:tai/config.txt",
+                  "ur0:tai/stray.skprx\n"
+                  "*KERNEL\nur0:tai/kubridge.skprx\n"
+                  "*main\n#ur0:tai/shellbat.suprx\n");
+    editor_scan();
+    plugins_scan();
     ui.tab = UI_TAB_HOME;
     ui.home_scroll = (float)layout_max_scroll();
-    if (!render(dir, "preview-home-pending.png", 6.0f, &ui))
+    if (!render(dir, "preview-home-plugins-warning.png", 6.0f, &ui))
         return 1;
 
     return 0;

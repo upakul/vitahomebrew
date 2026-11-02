@@ -1161,3 +1161,21 @@ cap. The PLUGINS tab keeps its own header line naming the active config and the
 editor state.
 **Rejected:** keeping the count in the header; listing every activated plugin in
 the block (that is the ledger's job); two half-width blocks under each column.
+**Amended by D68:** the block no longer shows `N PENDING`; pending stays on the
+PLUGINS tab that owns the edit.
+
+## D68 — Pending is a PLUGINS-tab state, not a HOME reading
+
+**Status:** Accepted (amends D67)
+**Context:** The HOME summary block showed `N PENDING` beside the group counts.
+The block exists to answer "what is running now"; a pending edit is bookkeeping
+for a change that has not happened, and mixing it into a running count made the
+block read as two states at once.
+**Decision:** HOME never renders a pending token. The block reports only the
+launch set, its group counts, and `CONFIG WARNING`. Pending remains visible on
+the PLUGINS tab, where the edit is made: the header line, the per-row `PENDING`
+badge, and the row's post-toggle state.
+**Consequence:** A user who toggles on PLUGINS and returns to HOME sees no
+reminder there; the PLUGINS tab is the single owner of pending. The right side
+of the HOME group line is empty unless a config warning is present.
+**Rejected:** keeping a pending badge on HOME; hiding pending entirely.

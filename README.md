@@ -55,7 +55,7 @@ cd vita-kernel-demo && ./build.sh   # app + kernel plugin
 Each project emits one uniquely named artifact in its `build/` directory:
 
 ```text
-build/cockpit-v01.00-b38.vpk
+build/cockpit-v01.00-b39.vpk
 build/cap-test-v01.00-b4.vpk
 build/kernel-demo-v01.00-b5.vpk
 ```
@@ -104,8 +104,9 @@ FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼───
 
 The header carries `HOME` and `PLUGINS` tabs. Press L/R to switch. HOME carries a
 full-width `PLUGINS` block below STORAGE and SYSTEM with the activated count,
-`PLUGINS ONLINE`, the non-empty group counts, and pending/warning tokens; it is
-read-only and sits below the fold, so scroll HOME down to it.
+`PLUGINS ONLINE`, the non-empty group counts, and a config warning; it is
+read-only and sits below the fold, so scroll HOME down to it. Pending edits are
+shown only on the PLUGINS tab.
 
 <p align="center">
   <img src="vita-cockpit/docs/preview-home-plugins.png" alt="COCKPIT HOME plugin summary block" width="640">

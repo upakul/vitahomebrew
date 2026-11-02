@@ -207,7 +207,7 @@ from the console. Cyberpunk 2077 HUD as the visual reference.
 
 ### Status
 
-**Hardware-verified at b13; b38 is built and host-tested, pending the fixed
+**Hardware-verified at b13; b39 is built and host-tested, pending the fixed
 tabbed check.** Runs on the 3.65 console: every panel renders, and `ux0:` reads
 `17.7/119.3 GB` through `sceAppMgrGetDevInfo`. The shipped build is `UNSAFE` by
 default (D42) because `uma0:` capacity needs `sceIoDevctl`, which the safe authid
@@ -216,8 +216,8 @@ refuses; `./build.sh --safe` still builds the restricted variant. `uma0:` reads
 
 HOME carries a read-only `PLUGINS` summary block below STORAGE and SYSTEM: the
 activated count at primary scale, `PLUGINS ONLINE`, the non-empty group counts,
-and pending/config-warning tokens (D67). It reports the launch set, sits below
-the fold, and scrolls with HOME; every edit is on the PLUGINS tab.
+and a config warning (D67, D68). It reports the launch set, sits below the fold,
+and scrolls with HOME; pending edits and every action are on the PLUGINS tab.
 
 PLUGINS resolves the active config the way taiHEN does (D55), lists every path
 active or commented, and groups by load target — KERNEL, SYSTEM, SYSTEM APPS,
@@ -269,7 +269,7 @@ cd vita-cockpit
 ./build.sh
 ```
 
-Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b38.vpk`).
+Output: `build/cockpit-v<version>-b<build>.vpk` (e.g. `cockpit-v01.00-b39.vpk`).
 `build.sh` counts distinct builds in `BUILD_NUMBER`: unchanged sources reuse the
 number, and only the newest VPK is kept (D46). Upload it with `./send.sh <vita-ip>`.
 
