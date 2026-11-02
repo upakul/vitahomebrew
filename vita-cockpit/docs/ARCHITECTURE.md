@@ -57,7 +57,7 @@ constructs and starts.
 | `core/history` | fixed-capacity ring of samples | libc |
 | `core/platform.h` | the port: raw device readings, no SDK types | stdint |
 | `core/metrics` | convert raw readings, maintain history, decide alerts | `core/*` |
-| `core/plugins` | parse tai config, resolve loaded plugins | `core/*` |
+| `core/plugins` | parse tai config, group by load target, resolve loaded plugins | `core/*` |
 | `platform/platform_psp2` | implement the port against the SDK | `psp2/*`, `core/platform.h` |
 | `gfx/layout` | screen geometry constants shared by `panels/` and `ui/` | nothing |
 | `gfx/draw` | rect, batched rects, line, triangle, additive blend, clip | `vita2d.h`, `psp2/gxm.h` |
@@ -244,7 +244,9 @@ could not be 552 wide while its neighbour is 360.
 
 The table is mutable only for the plugin list: `layout_update()` finds the
 PLUGINS slot by panel identity and writes `plugins_panel_height()` into it, so
-the region grows with the number of loaded plugins (D47). The list holds up to
+the region grows with the number of loaded plugins and the number of non-empty
+groups (D47, D51). Each `PluginInfo` carries its `PluginSection`; a file listed
+under several targets keeps the most privileged one. The list holds up to
 `PLUGINS_MAX` entries and sets `PluginList.truncated` when a config exceeds
 that, which the panel states rather than hiding (D50). Every other rect is
 fixed at compile time. The canvas height and the scroll limit are derived from

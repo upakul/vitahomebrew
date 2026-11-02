@@ -225,6 +225,10 @@ static void test_plugins_parse(void)
     CHECK(added == 3);
     CHECK(list.count == 3);
 
+    CHECK(list.items[0].section == PLUGIN_SECTION_KERNEL);
+    CHECK(list.items[1].section == PLUGIN_SECTION_KERNEL);
+    CHECK(list.items[2].section == PLUGIN_SECTION_SYSTEM);
+
     /* A commented-out entry is deactivated, not merely unreadable. */
     for (int i = 0; i < list.count; ++i)
         CHECK(strcmp(list.items[i].name, "vitaos_ps.suprx") != 0);
@@ -245,7 +249,7 @@ static void test_plugins_parse(void)
 
     PluginList unknown;
     memset(&unknown, 0, sizeof(unknown));
-    plugins_parse("ur0:tai/mystery.skprx\n", &unknown);
+    plugins_parse("*main\nur0:tai/mystery.skprx\n", &unknown);
     CHECK(unknown.count == 1);
     CHECK(unknown.items[0].desc[0] == '\0');
 
@@ -260,7 +264,7 @@ static void test_plugins_parse(void)
         PluginList one;
 
         memset(&one, 0, sizeof(one));
-        snprintf(cfg, sizeof(cfg), "ur0:tai/%s\n", NAMED[i]);
+        snprintf(cfg, sizeof(cfg), "*main\nur0:tai/%s\n", NAMED[i]);
         plugins_parse(cfg, &one);
         CHECK(one.count == 1);
         CHECK(one.items[0].desc[0] != '\0');
@@ -271,6 +275,53 @@ static void test_plugins_parse(void)
     memset(&empty, 0, sizeof(empty));
     plugins_parse("*KERNEL\n*main\n", &empty);
     CHECK(empty.count == 0);
+}
+
+/* The section a named plugin was filed under, or -1 when it is absent. */
+static int section_of(const PluginList *list, const char *name)
+{
+    for (int i = 0; i < list->count; ++i) {
+        if (strcmp(list->items[i].name, name) == 0)
+            return (int)list->items[i].section;
+    }
+
+    return -1;
+}
+
+/* Section headers decide the group. A file listed under several targets is
+ * shown once, under the most privileged one; a path before any header is not
+ * loaded and must not appear (D51). */
+static void test_plugins_sections(void)
+{
+    static const char CFG[] = "ur0:tai/orphan.skprx\n"
+                              "*NPXS10015\n"
+                              "ur0:tai/settings.suprx\n"
+                              "ur0:tai/shared.suprx\n"
+                              "*KERNEL\n"
+                              "ur0:tai/kern.skprx\n"
+                              "ur0:tai/shared.suprx\n"
+                              "*main\n"
+                              "ur0:tai/shell.suprx\n"
+                              "*NPXS10016\n"
+                              "ur0:tai/widget.suprx\n"
+                              "*all\n"
+                              "ur0:tai/all.suprx\n"
+                              "*PCSE00001\n"
+                              "ur0:tai/game.suprx\n";
+
+    PluginList list;
+    memset(&list, 0, sizeof(list));
+    plugins_parse(CFG, &list);
+
+    CHECK(list.count == 7);
+    CHECK(section_of(&list, "orphan.skprx") == -1);
+    CHECK(section_of(&list, "settings.suprx") == PLUGIN_SECTION_SYSTEM_APP);
+    CHECK(section_of(&list, "kern.skprx") == PLUGIN_SECTION_KERNEL);
+    CHECK(section_of(&list, "shared.suprx") == PLUGIN_SECTION_KERNEL);
+    CHECK(section_of(&list, "shell.suprx") == PLUGIN_SECTION_SYSTEM);
+    CHECK(section_of(&list, "widget.suprx") == PLUGIN_SECTION_SYSTEM_APP);
+    CHECK(section_of(&list, "all.suprx") == PLUGIN_SECTION_ALL_TITLES);
+    CHECK(section_of(&list, "game.suprx") == PLUGIN_SECTION_TITLE);
 }
 
 /*
@@ -301,6 +352,7 @@ static void test_plugins_capacity(void)
     CHECK(strcmp(list.items[0].name, "plugin00.skprx") == 0);
     CHECK(strcmp(list.items[N - 1].name, "plugin39.skprx") == 0);
     CHECK(strcmp(list.items[N - 1].path, "ur0:tai/plugin39.skprx") == 0);
+    CHECK(list.items[N - 1].section == PLUGIN_SECTION_KERNEL);
 }
 
 /* The longest catalog file name is 41 characters. A 32-byte field cut the name
@@ -309,11 +361,11 @@ static void test_plugins_long_name(void)
 {
     static const char PATH[] =
         "ur0:tai/analogstickdisable_swapleftandright.skprx";
-    char cfg[sizeof(PATH) + 2];
+    char cfg[sizeof(PATH) + 8];
     PluginList list;
 
     memset(&list, 0, sizeof(list));
-    snprintf(cfg, sizeof(cfg), "%s\n", PATH);
+    snprintf(cfg, sizeof(cfg), "*main\n%s\n", PATH);
     plugins_parse(cfg, &list);
 
     CHECK(list.count == 1);
@@ -329,6 +381,8 @@ static void test_plugins_truncation(void)
 {
     char cfg[(PLUGINS_MAX + 2) * 32];
     size_t off = 0;
+
+    off += (size_t)snprintf(cfg + off, sizeof(cfg) - off, "*KERNEL\n");
 
     for (int i = 0; i < PLUGINS_MAX + 1; ++i)
         off += (size_t)snprintf(cfg + off, sizeof(cfg) - off,
@@ -346,6 +400,8 @@ static void test_plugins_truncation(void)
     PluginList full;
     memset(&full, 0, sizeof(full));
     off = 0;
+
+    off += (size_t)snprintf(cfg + off, sizeof(cfg) - off, "*KERNEL\n");
 
     for (int i = 0; i < PLUGINS_MAX; ++i)
         off += (size_t)snprintf(cfg + off, sizeof(cfg) - off,
@@ -368,6 +424,7 @@ int main(void)
     test_history_ring();
     test_frame_floor();
     test_plugins_parse();
+    test_plugins_sections();
     test_plugins_capacity();
     test_plugins_long_name();
     test_plugins_truncation();

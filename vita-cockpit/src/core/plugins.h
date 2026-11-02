@@ -33,10 +33,26 @@
 
 #define PLUGIN_DESC_MAX 56
 
+/*
+ * Where a plugin is listed in config.txt. The order is the display order and
+ * also the merge priority: when one file appears under several targets, the
+ * lowest value wins, because that is the most privileged context it runs in
+ * (D51).
+ */
+typedef enum {
+    PLUGIN_SECTION_KERNEL = 0, /* *KERNEL */
+    PLUGIN_SECTION_SYSTEM,     /* *main, the SceShell */
+    PLUGIN_SECTION_SYSTEM_APP, /* *NPXSxxxxx, a system application */
+    PLUGIN_SECTION_ALL_TITLES, /* *ALL */
+    PLUGIN_SECTION_TITLE,      /* any other *TITLEID */
+    PLUGIN_SECTION_COUNT
+} PluginSection;
+
 typedef struct {
     char name[PLUGIN_NAME_MAX]; /* basename, e.g. "kubridge.skprx" */
     char path[PLUGIN_PATH_MAX]; /* as written in config.txt */
     char desc[PLUGIN_DESC_MAX]; /* short role, or "" when unknown */
+    PluginSection section;      /* where the file is activated */
 } PluginInfo;
 
 typedef struct {

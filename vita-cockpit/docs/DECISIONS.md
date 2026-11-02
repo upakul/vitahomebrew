@@ -847,3 +847,46 @@ entries and never reach the list. Host tests are 74.
 startup, so a heap list would work, but it adds an allocation-failure path and a
 lifetime to a module that currently has neither. 64 is more than a console can
 usefully boot; the flag covers the impossible case instead of hiding it.
+
+## D51 — Group the plugin ledger by load target
+
+**Status:** Accepted (extends D47 and D50)
+**Context:** The ledger was a flat list, but `config.txt` is organised by load
+target: `*KERNEL`, `*main`, `*NPXSxxxxx` system apps, `*ALL`, and individual
+title IDs. A flat nineteen-row list hid that structure and made a user compare
+the panel against the file line by line to see what ran where. The user asked
+for the config's grouping with friendly names.
+**Decision:** The parser records a `PluginSection` for every entry and the panel
+draws a tracked cyan header once per non-empty group: KERNEL, SYSTEM (`*main`),
+SYSTEM APPS (`*NPXS*`), ALL TITLES (`*ALL`), TITLES (any other target). A file
+listed in several sections is shown once, under the most privileged one, which
+is the enum order: KERNEL, SYSTEM, SYSTEM APPS, ALL TITLES, TITLES. A path
+before the first section header is ignored; the format gives it no load target
+(`[C]`, no such config has been observed).
+**Consequence:** The 19-entry console config renders four groups: KERNEL 9,
+SYSTEM 8, SYSTEM APPS 1, ALL TITLES 1. `henkaku.suprx`, listed under a system
+app and under `*main`, appears once in SYSTEM. Panel height becomes
+`41 + 26 × groups + 52 × rows + 10 × gaps`, so the canvas is 1,581 px for that
+config and scrolls. A 19-row scratch render measured 4,423 draw calls against
+the 5,500 budget.
+**Rejected:** one row per section occurrence. `henkaku.suprx` would appear three
+times and the panel would answer "how many lines are in config.txt" instead of
+"what is running".
+
+## D52 — A plugin with no catalog entry says N/A
+
+**Status:** Accepted
+**Context:** A row outside the 155-entry catalog kept an empty description line.
+That reads as a drawing failure or a clipped row, not as "the catalog has
+nothing for this file", and the user asked for the absence to be explicit.
+**Decision:** `draw_row()` always draws the second line. An empty description
+renders `N/A` at micro scale in the same dim tone as a real description. The
+data layer still stores the empty string: only the panel supplies the token.
+**Consequence:** Every plugin row is exactly two lines, so the 52 px stride is
+uniform and the panel height formula needs no special case. The preview's fake
+config includes one unknown file (`mystery.suprx`) so the N/A path is visible in
+every render. Host tests keep asserting that an unknown entry's description is
+empty, which pins the boundary between data and presentation.
+**Rejected:** writing `N/A` into `PluginInfo.desc` during the scan. It would
+make an unknown plugin indistinguishable from one whose catalog text is
+literally "N/A", and it puts UI copy in the sampling layer.

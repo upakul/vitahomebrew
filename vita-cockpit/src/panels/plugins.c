@@ -7,17 +7,20 @@
 #include "gfx/layout.h"
 
 /*
- * ACTIVATED PLUGINS — what taiHEN is running, one row per plugin:
+ * ACTIVATED PLUGINS — what taiHEN is running, grouped by load target:
  *
+ *   KERNEL
  *   NAME  ------------------  (dot)
  *   description
  *
- * The leader line and the dot make the row read as a status entry rather than a
- * paragraph. The dot is green because every row here is loaded; a plugin whose
- * file is missing never reaches this list (D47).
+ * The leader line and the dot make each row read as a status entry rather than
+ * a paragraph. The dot is green because every row here is loaded; a plugin
+ * whose file is missing never reaches this list (D47).
  *
- * The panel is self-sizing: its height comes from the row count, so a console
- * with eight plugins grows the region and one with two shrinks it.
+ * The panel is self-sizing: one header per non-empty group and one row per
+ * plugin, so a console with twenty plugins grows the region and two shrinks it.
+ * A plugin outside the description catalog says N/A instead of leaving a blank
+ * second line (D51, D52).
  */
 
 #define DOT_SIZE 6.0f
@@ -26,6 +29,27 @@
 #define LEADER_GAP 8.0f
 #define LEADER_END_GAP 6.0f
 #define LEADER_DIM 0.6f
+
+/* A group header, then the air before its first row. */
+#define GROUP_HEADER_H 26.0f
+
+/* Air between the last description of one group and the next header. */
+#define GROUP_GAP 10.0f
+
+#define PLUGIN_DESC_NONE "N/A"
+
+/*
+ * Friendly names for the load targets in config.txt (D51). The order matches
+ * PluginSection, which is also the merge priority: a file listed in several
+ * sections is shown under the most privileged one.
+ */
+static const char *const GROUP_LABELS[PLUGIN_SECTION_COUNT] = {
+    "KERNEL",
+    "SYSTEM",
+    "SYSTEM APPS",
+    "ALL TITLES",
+    "TITLES",
+};
 
 static void draw_message(Rect r, const char *msg)
 {
@@ -50,25 +74,57 @@ static void draw_row(Rect r, const PluginInfo *p, float y)
 
     draw_rect(dot_x, y + DOT_DY, DOT_SIZE, DOT_SIZE, C_GREEN);
 
-    if (p->desc[0] != '\0')
-        font_text(p->desc, name_x, y + PLUGIN_DESC_DY, PX_MICRO, C_DIM);
+    /* Every row is two lines. An unknown plugin keeps its row and says so,
+     * because an empty line reads as a drawing failure rather than a gap in the
+     * catalog. */
+    font_text(p->desc[0] != '\0' ? p->desc : PLUGIN_DESC_NONE, name_x,
+              y + PLUGIN_DESC_DY, PX_MICRO, C_DIM);
+}
+
+static int rows_in_section(PluginSection section)
+{
+    int count = 0;
+
+    for (int i = 0; i < g_plugins.count; ++i) {
+        if (g_plugins.items[i].section == section)
+            ++count;
+    }
+
+    return count;
+}
+
+static int group_count(void)
+{
+    int groups = 0;
+
+    for (int s = 0; s < PLUGIN_SECTION_COUNT; ++s) {
+        if (rows_in_section((PluginSection)s) > 0)
+            ++groups;
+    }
+
+    return groups;
 }
 
 float plugins_panel_height(void)
 {
-    int rows = g_plugins.count > 0 ? g_plugins.count : 1;
+    if (g_plugins.count == 0)
+        return PLUGIN_TOP + PLUGIN_STRIDE; /* room for the message row */
+
+    int groups = group_count();
 
     /*
-     * The last row contributes its description and the bottom margin; the
-     * stride already contains the gap that follows it. Counting a full stride
-     * per row over-allocated one line of dead space in the first version.
+     * One header per group, one stride per row. The last row's stride already
+     * carries the bottom margin, so only the gaps between groups are added.
      */
-    float h = PLUGIN_TOP + (float)(rows - 1) * PLUGIN_STRIDE + PLUGIN_DESC_DY +
-              PLUGIN_LINE_H + PLUGIN_BOTTOM;
+    float h = PLUGIN_TOP + (float)groups * GROUP_HEADER_H +
+              (float)g_plugins.count * PLUGIN_STRIDE;
 
-    /* The truncation notice occupies the slot a further row would have used. */
+    if (groups > 1)
+        h += (float)(groups - 1) * GROUP_GAP;
+
+    /* The truncation notice sits below the last row, with air above and below. */
     if (g_plugins.truncated)
-        h += PLUGIN_STRIDE;
+        h += GROUP_GAP + PLUGIN_LINE_H + SP_2;
 
     return h;
 }
@@ -87,15 +143,37 @@ static void draw_plugins(const Panel *self, Rect r)
         return;
     }
 
-    for (int i = 0; i < g_plugins.count; ++i) {
-        float y = r.y + PLUGIN_TOP + (float)i * PLUGIN_STRIDE;
+    float y = r.y + PLUGIN_TOP;
+    int groups_drawn = 0;
 
-        /* Off the band: the scissor would discard it, so skip the glyph walk. */
-        if (y + PLUGIN_DESC_DY + PLUGIN_LINE_H <= (float)VIEW_Y ||
-            y >= (float)(VIEW_Y + VIEW_H))
+    for (int s = 0; s < PLUGIN_SECTION_COUNT; ++s) {
+        PluginSection section = (PluginSection)s;
+
+        if (rows_in_section(section) == 0)
             continue;
 
-        draw_row(r, &g_plugins.items[i], y);
+        if (groups_drawn > 0)
+            y += GROUP_GAP;
+
+        /* Off the band: the scissor would discard it, so skip the glyph walk. */
+        if (y + LINE_H(PX_MICRO) > (float)VIEW_Y &&
+            y < (float)(VIEW_Y + VIEW_H))
+            font_text_tracked(GROUP_LABELS[section], r.x + PANEL_PAD, y,
+                              PX_MICRO, C_CYAN, 1.0f);
+
+        y += GROUP_HEADER_H;
+        ++groups_drawn;
+
+        for (int i = 0; i < g_plugins.count; ++i) {
+            if (g_plugins.items[i].section != section)
+                continue;
+
+            if (y + PLUGIN_DESC_DY + PLUGIN_LINE_H > (float)VIEW_Y &&
+                y < (float)(VIEW_Y + VIEW_H))
+                draw_row(r, &g_plugins.items[i], y);
+
+            y += PLUGIN_STRIDE;
+        }
     }
 
     /*
@@ -103,7 +181,7 @@ static void draw_plugins(const Panel *self, Rect r)
      * but if it does, the missing rows are stated rather than silently cut.
      */
     if (g_plugins.truncated) {
-        float y = r.y + PLUGIN_TOP + (float)g_plugins.count * PLUGIN_STRIDE;
+        y += GROUP_GAP;
 
         if (y + PLUGIN_LINE_H > (float)VIEW_Y &&
             y < (float)(VIEW_Y + VIEW_H))

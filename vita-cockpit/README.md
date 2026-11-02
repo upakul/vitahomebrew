@@ -37,13 +37,14 @@ single live instrument panel.
 - **Auth:** UNSAFE eboot by default (`0x2F00000000000001`), because `uma0:`
   capacity needs `sceIoDevctl` (D42). `./build.sh --safe` builds the
   restricted `0x2F00000000000002` variant.
-- **Status:** builds and packages (86 KB VPK), runs on the 3.65 console;
-  74 host checks pass.
+- **Status:** builds and packages (89 KB VPK), runs on the 3.65 console;
+  87 host checks pass.
 
 The plugin ledger reads every activated entry in `ur0:tai/config.txt` (and the
-legacy `ux0:` file), not a fixed number of rows. Entries whose file is missing
-are dropped, commented lines are ignored, and a plugin outside the description
-catalog still gets a row with no invented text.
+legacy `ux0:` file), groups it by load target — KERNEL, SYSTEM, SYSTEM APPS,
+ALL TITLES, TITLES — and draws a row for each file. Entries whose file is
+missing are dropped, commented lines are ignored, and a plugin outside the
+description catalog keeps its row and says `N/A`.
 
 ## Read in this order
 
@@ -61,7 +62,7 @@ catalog still gets a row with no invented text.
 ./build.sh --safe     # restricted eboot, marked -safe in the filename
 ```
 
-Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b9.vpk`.
+Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b12.vpk`.
 The build number counts distinct builds and is kept in `BUILD_NUMBER`: unchanged
 sources reuse the number, and only the newest VPK is kept (D46). Upload it with:
 

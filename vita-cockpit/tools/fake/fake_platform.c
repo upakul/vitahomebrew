@@ -213,7 +213,8 @@ static const char SAMPLE_CONFIG[] = "# sample tai config\n"
                                     "ur0:tai/kubridge.skprx\n"
                                     "ur0:tai/storagemgr.skprx\n"
                                     "*main\n"
-                                    "ur0:tai/libshacccg.suprx\n";
+                                    "ur0:tai/libshacccg.suprx\n"
+                                    "ur0:tai/mystery.suprx\n";
 
 int platform_read_text_file(const char *path, char *buf, int cap)
 {
@@ -241,6 +242,7 @@ static const char *const PRESENT[] = {
     "ur0:tai/kubridge.skprx",
     "ur0:tai/storagemgr.skprx",
     "ur0:tai/libshacccg.suprx",
+    "ur0:tai/mystery.suprx",
 };
 
 int platform_file_exists(const char *path)

@@ -33,7 +33,7 @@ moves.
 │ UMA0                   N/A   │ MODEL            PSVITA        │
 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░  │                                │
 ├──────────────────────────────┴────────────────────────────────┤
-│ ACTIVATED PLUGINS            height = 41 + 52 × rows (+ notice) │
+│ ACTIVATED PLUGINS            grouped by load target          │
 │ KUBRIDGE.SKPRX ──────────────────────────────── ▪            │
 │ kernel-user bridge module                                    │
 │ ...                                                          │
@@ -60,7 +60,8 @@ appears twice.
 
 Panel `y` is canvas coordinates; the app offsets them by the scroll and clips to
 the viewport at y 74..470. The canvas is `406 + plugins_panel_height() + 12`:
-615 with three plugins, 875 with eight.
+729 for the four-plugin preview (two groups), 1,581 for the nineteen-plugin
+console config (four groups).
 
 Constants: `MARGIN 18`, `GAP 12`, `SP_3 12`. Both columns share both seams --
 row one is 210 tall, row two 172 -- so the 12 px gap between the rows runs
@@ -156,7 +157,7 @@ A glyph is `5·px` wide, `7·px` tall, advancing `6·px`.
 
 | Role | px | Box | Used for |
 |---|---|---|---|
-| micro | 1.5 | 7.5 × 10.5 | units, charging state, trace caption, plugin description |
+| micro | 1.5 | 7.5 × 10.5 | units, charging state, trace caption, plugin description, group header |
 | label | 2 | 10 × 14 | metric names, panel titles |
 | value | 3 | 15 × 21 | numbers in a row |
 | hero | 4 | 20 × 28 | wordmark |
@@ -246,14 +247,21 @@ row is never acceptable (D41).
 
 ### Plugin ledger
 
-ACTIVATED PLUGINS is a two-line ledger rather than a readout: the file name at
-label scale, a leader rule to a green status dot, then the description one step
-down at micro scale. The dot is `C_GREEN`, the only status hue in the palette;
-every row in the panel is loaded, because the scan drops entries whose file is
-missing. The panel's height is `41 + 52 × rows`, so it grows with the list
-instead of clipping it (D47, D48). A config that exceeds the 64-entry ceiling
-adds one row of height for the `MORE PLUGINS NOT SHOWN` notice, which is the
-only text in this panel that is not a plugin (D50).
+ACTIVATED PLUGINS is a two-line ledger, grouped by the load target the plugin
+was listed under: KERNEL, SYSTEM (`*main`), SYSTEM APPS (`*NPXS*`), ALL TITLES
+(`*ALL`), and TITLES for any other target. Each non-empty group opens with a
+micro, 1 px-tracked cyan header. A file listed under several targets appears
+once, under the most privileged one, so the panel answers what is running rather
+than how many lines the file contains (D51).
+
+A row is the file name at label scale, a leader rule to a green status dot, then
+the description one step down at micro scale. An entry outside the description
+catalog says `N/A` instead of leaving the second line empty (D52). The dot is
+`C_GREEN`, the only status hue in the palette; every row in the panel is loaded,
+because the scan drops entries whose file is missing. Height is
+`41 + 26 × groups + 52 × rows + 10 × (groups − 1)`, so the panel grows with the
+list instead of clipping it (D47, D48). A config that exceeds the 64-entry
+ceiling adds one line for the `MORE PLUGINS NOT SHOWN` notice (D50).
 
 Traces are a 2 px line, not a filled area. At 200 samples across ~500 px an
 area chart collapses into a solid block that hides the shape it exists to show

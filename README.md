@@ -55,7 +55,7 @@ cd vita-kernel-demo && ./build.sh   # app + kernel plugin
 Each project emits one uniquely named artifact in its `build/` directory:
 
 ```text
-build/cockpit-v01.00-b9.vpk
+build/cockpit-v01.00-b12.vpk
 build/cap-test-v01.00-b4.vpk
 build/kernel-demo-v01.00-b5.vpk
 ```
@@ -96,8 +96,12 @@ UX0            12.4/29.5 GB  │ FW            3.65
 UMA0                  N/A    │ RUN     00:14:22
 ─────────────────────────────┴────────────────────────────
 ACTIVATED PLUGINS
+KERNEL
 KUBRIDGE.SKPRX ────────────────────────────── ▪
 kernel-user bridge module
+SYSTEM
+HENKAKU.SUPRX ─────────────────────────────── ▪
+settings menu, version and update spoof
 ──────────────────────────────────────────────────────────
 FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼───
 ```
@@ -109,9 +113,10 @@ FRAME  58.4 FPS  17.1 MS   ─┼─────┼───┼───
 
 The panel area scrolls because the content does not fit one screen; the header
 and the `FRAME` strip stay pinned. The plugin ledger reads every activated entry
-in `config.txt`, grows with the list, and carries a description for each of 155
-known taiHEN plugins. A plugin outside the catalog still gets a row with its name
-and no invented description; a commented-out entry is not shown.
+in `config.txt`, groups rows by load target — KERNEL, SYSTEM, SYSTEM APPS, ALL
+TITLES, TITLES — and grows with the list. Descriptions cover 155 known taiHEN
+plugins; a plugin outside the catalog still gets a row and says `N/A`, and a
+commented-out entry is not shown.
 
 <p align="center">
   <img src="vita-cockpit/docs/preview-scrolled.png" alt="COCKPIT scrolled to the plugin ledger" width="640">
@@ -127,7 +132,7 @@ for a refused read.
 
 ```sh
 cd vita-cockpit
-./tools/test/run.sh      # 74 host checks against a fake port
+./tools/test/run.sh      # 87 host checks against a fake port
 ./tools/preview/run.sh   # four 960×544 PNGs in build/preview/
 ```
 

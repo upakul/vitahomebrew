@@ -238,6 +238,59 @@ static int ieq(const char *a, const char *b)
     return *a == '\0' && *b == '\0';
 }
 
+/* Case-insensitive compare of a slice, which is not NUL-terminated. */
+static int slice_ieq(const char *s, size_t n, const char *lit)
+{
+    size_t m = strlen(lit);
+
+    if (n != m)
+        return 0;
+
+    for (size_t i = 0; i < n; ++i) {
+        char a = s[i];
+        char b = lit[i];
+
+        if (a >= 'A' && a <= 'Z')
+            a = (char)(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z')
+            b = (char)(b - 'A' + 'a');
+
+        if (a != b)
+            return 0;
+    }
+
+    return 1;
+}
+
+static int slice_has_prefix(const char *s, size_t n, const char *lit)
+{
+    size_t m = strlen(lit);
+
+    return n >= m && slice_ieq(s, m, lit);
+}
+
+/*
+ * Map a section header to its group. `line` includes the leading '*', which is
+ * how taiHEN marks a load target. Unknown targets are title IDs, which is the
+ * `*PCSE00001` case (D51).
+ */
+static PluginSection section_from_header(const char *line, size_t len)
+{
+    const char *name = line + 1;
+    size_t n = len - 1;
+
+    if (slice_ieq(name, n, "kernel"))
+        return PLUGIN_SECTION_KERNEL;
+    if (slice_ieq(name, n, "main"))
+        return PLUGIN_SECTION_SYSTEM;
+    if (slice_ieq(name, n, "all"))
+        return PLUGIN_SECTION_ALL_TITLES;
+    if (slice_has_prefix(name, n, "npxs"))
+        return PLUGIN_SECTION_SYSTEM_APP;
+
+    return PLUGIN_SECTION_TITLE;
+}
+
 static const char *base_name(const char *path)
 {
     const char *base = path;
@@ -272,17 +325,22 @@ static void copy(char *dst, size_t cap, const char *src)
     snprintf(dst, cap, "%s", src);
 }
 
-static void add_plugin(PluginList *list, const char *path)
+static void add_plugin(PluginList *list, const char *path, PluginSection section)
 {
     const char *base = base_name(path);
     if (*base == '\0')
         return;
 
-    /* The same plugin can be listed in both config files. Check this before the
-     * ceiling: a repeated line is not a lost plugin. */
+    /* One row per file, not per line. A plugin listed in several sections keeps
+     * the most privileged one: KERNEL outranks SYSTEM, which outranks a system
+     * app, ALL, and a single title (D51). Checking this before the ceiling also
+     * means a repeated line is not a lost plugin. */
     for (int i = 0; i < list->count; ++i) {
-        if (ieq(list->items[i].name, base))
+        if (ieq(list->items[i].name, base)) {
+            if (section < list->items[i].section)
+                list->items[i].section = section;
             return;
+        }
     }
 
     if (list->count >= PLUGINS_MAX) {
@@ -297,6 +355,7 @@ static void add_plugin(PluginList *list, const char *path)
     copy(p->name, sizeof(p->name), base);
     copy(p->path, sizeof(p->path), path);
     p->desc[0] = '\0';
+    p->section = section;
 
     for (int k = 0; k < KNOWN_COUNT; ++k) {
         if (ieq(KNOWN[k].name, p->name)) {
@@ -315,6 +374,8 @@ int plugins_parse(const char *text, PluginList *list)
 
     int added = 0;
     const char *p = text;
+    PluginSection section = PLUGIN_SECTION_TITLE; /* replaced by the first header */
+    int have_section = 0;
 
     while (*p != '\0') {
         const char *line = p;
@@ -339,8 +400,19 @@ int plugins_parse(const char *text, PluginList *list)
         if (len == 0 || *line == '#')
             continue;
 
-        /* Section headers (*KERNEL, *main) are not plugins. */
-        if (*line == '*')
+        /* A section header selects the group the following paths load into. */
+        if (*line == '*') {
+            section = section_from_header(line, len);
+            have_section = 1;
+            continue;
+        }
+
+        /*
+         * A path before any section header has no load target. taiHEN ignores
+         * it; filing it under a guess would invent a group. [C] No config with
+         * such a line has been observed, but the format has no default target.
+         */
+        if (!have_section)
             continue;
 
         char path[PLUGIN_PATH_MAX];
@@ -354,7 +426,7 @@ int plugins_parse(const char *text, PluginList *list)
             continue;
 
         int before = list->count;
-        add_plugin(list, path);
+        add_plugin(list, path, section);
         if (list->count != before)
             ++added;
     }

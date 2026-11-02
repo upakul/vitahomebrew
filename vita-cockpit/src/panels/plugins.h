@@ -11,9 +11,10 @@
  * clipping them. The layout asks for the height rather than hard-coding one.
  *
  * One row is: name (PX_LABEL, 14 px), SP_2 of air, description (PX_MICRO in a
- * 14 px line box), then SP_4 to the next name -- 52 px in all. The description
- * is one step down the type ladder so the name stays the identifier and the
- * gloss stays a gloss (D48).
+ * 14 px line box), then SP_4 to the next name -- 52 px in all. That trailing
+ * 16 px is also the bottom margin under the last row. The description is one
+ * step down the type ladder so the name stays the identifier and the gloss
+ * stays a gloss (D48).
  */
 
 /* First name line: one step below the title's own line. */
@@ -21,7 +22,6 @@
 #define PLUGIN_STRIDE 52.0f   /* one name, one description, gap to the next */
 #define PLUGIN_DESC_DY 22.0f  /* description line below the name */
 #define PLUGIN_LINE_H 14.0f   /* line box, not the 10.5 px glyph height */
-#define PLUGIN_BOTTOM 16.0f   /* breathing room under the last description */
 
 /* Height for the current plugin count; one row minimum for the empty state. */
 float plugins_panel_height(void);
