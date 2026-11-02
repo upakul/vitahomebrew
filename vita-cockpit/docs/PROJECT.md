@@ -91,7 +91,7 @@ makes "which build is on the Vita?" answerable.
 The artifact is named:
 
 ```
-build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b34.vpk
+build/cockpit-v<version>-b<build>.vpk        e.g. cockpit-v01.00-b35.vpk
 ```
 
 | Part | Source | Changes |
@@ -130,8 +130,8 @@ community knowledge.
 
 | Area | Status |
 |---|---|
-| Builds and packages | `[V]` clean build, 111.6 KB VPK (b34), no warnings |
-| Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh`, 314 checks |
+| Builds and packages | `[V]` clean build, 112.1 KB VPK (b35), no warnings |
+| Sampling policy (alert thresholds, unit conversion, history ring) | `[V]` host tests, `tools/test/run.sh`, 316 checks |
 | Plugin list (`ux0:` first, `ur0:` fallback) | `[V]` host harness keeps a 19-entry real config in full and groups it as KERNEL 9 / SYSTEM 8 / SYSTEM APPS 1 / ALL TITLES 1; host tests cover BOM, commented entries, long names, section mapping, priority merge, the 64-entry ceiling, full-path duplicate rows, `*!` halts, lock/warn policy, the two snapshots, and the exact `#` edit |
 | Clocks, memory, power APIs declared in SDK | `[V]` header inspection |
 | Clock row follows a runtime clock change | `[C]` — the getters are re-read every sample, so an overclock applied by a plugin should appear within ~100 ms without a restart; not yet observed on hardware |
@@ -140,7 +140,7 @@ community knowledge.
 | Storage result unit (bytes) | `[C]` — the one claim still unconfirmed |
 | Device model codes | `[V]` `psp2common/kernel/sysmem.h` |
 | Screen layout and typography | `[V]` host preview render, 13 states; header summary, badges, controls, modal, and CORE/POWER outlines at scroll 0 (D53, D54, D63, D66) |
-| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the fixed tabbed build b34 is not on hardware yet |
+| Renders on hardware | `[V]` 2026-11-02 (b13): text, clocks, memory, power, identity and frame all draw on the console; the fixed tabbed build b35 is not on hardware yet |
 | Config write path | `[C]` the adapter's rename-away swap and live read-back are implemented and build; host tests exercise the same transaction in the fake, not the SDK calls, and the target's rename semantics are unverified |
 | STORAGE reads | `[V]` both volumes report on hardware under `UNSAFE` (D42); `ux0:` also works on the safe build via `sceAppMgrGetDevInfo` (D38) |
 | Behaviour not listed above | unverified |
@@ -179,7 +179,7 @@ Panels degrade, they do not crash.
 
 | Step | Adds | Needs |
 |---|---|---|
-| v1 | the dashboard and the plugin manager | b34 builds and is host-tested; the fixed tabbed UI is pending the console check |
+| v1 | the dashboard and the plugin manager | b35 builds and is host-tested; the fixed tabbed UI is pending the console check |
 | v2 | app inventory, per-title storage | `sceAppMgrGetAppInfo`, directory walk of `ux0:app` |
 | v3 | network status | `SceNetCtl` |
 | v4 | theme switching, a second visual language | a theme abstraction in `gfx/theme` |

@@ -147,6 +147,14 @@ PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
 int platform_write_config(const char *path, const char *text, int len);
 
 /*
+ * The stage of the last platform_write_config failure: "OPEN", "WRITE",
+ * "VERIFY", "MOVE", "RENAME", "READBACK", or "RESTORE". "NONE" after a
+ * success. The editor appends it to WRITE FAILED so a console report names the
+ * SDK call that was refused.
+ */
+const char *platform_write_error(void);
+
+/*
  * Snapshot the active config (D61). `text`/`len` are the bytes just read, so
  * the snapshots cannot race a later read.
  *

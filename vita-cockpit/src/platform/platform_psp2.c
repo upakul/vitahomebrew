@@ -357,18 +357,31 @@ static int verify_bytes(const char *path, const char *text, int len)
     return 0;
 }
 
+static const char *s_write_error = "NONE";
+
+const char *platform_write_error(void)
+{
+    return s_write_error;
+}
+
 int platform_write_config(const char *path, const char *text, int len)
 {
+    s_write_error = "NONE";
+
     if (path == NULL || text == NULL || len < 0 ||
-        len >= PLATFORM_CONFIG_MAX)
+        len >= PLATFORM_CONFIG_MAX) {
+        s_write_error = "ARGS";
         return -1;
+    }
 
     char tmp[PLATFORM_PATH_MAX];
     char old[PLATFORM_PATH_MAX];
 
     if (snprintf(tmp, sizeof(tmp), "%s.new", path) >= (int)sizeof(tmp) ||
-        snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old))
+        snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old)) {
+        s_write_error = "PATH";
         return -1;
+    }
 
     (void)sceIoRemove(tmp);
 
@@ -377,12 +390,16 @@ int platform_write_config(const char *path, const char *text, int len)
      * config, so it must not be overwritten silently; remove it first and fail
      * closed if it cannot be removed.
      */
-    if (platform_file_exists(old) && sceIoRemove(old) < 0)
+    if (platform_file_exists(old) && sceIoRemove(old) < 0) {
+        s_write_error = "OLD";
         return -1;
+    }
 
     SceUID fd = sceIoOpen(tmp, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_EXCL, 0666);
-    if (fd < 0)
+    if (fd < 0) {
+        s_write_error = "OPEN";
         return -1;
+    }
 
     int done = 0;
     while (done < len) {
@@ -390,6 +407,7 @@ int platform_write_config(const char *path, const char *text, int len)
         if (w <= 0) {
             (void)sceIoClose(fd);
             (void)sceIoRemove(tmp);
+            s_write_error = "DATA";
             return -1;
         }
         done += w;
@@ -397,11 +415,13 @@ int platform_write_config(const char *path, const char *text, int len)
 
     if (sceIoClose(fd) < 0) {
         (void)sceIoRemove(tmp);
+        s_write_error = "CLOSE";
         return -1;
     }
 
     if (verify_bytes(tmp, text, len) != 0) {
         (void)sceIoRemove(tmp);
+        s_write_error = "VERIFY";
         return -1;
     }
 
@@ -414,6 +434,7 @@ int platform_write_config(const char *path, const char *text, int len)
      */
     if (had_original && sceIoRename(path, old) < 0) {
         (void)sceIoRemove(tmp);
+        s_write_error = "MOVE";
         return -1;
     }
 
@@ -421,6 +442,7 @@ int platform_write_config(const char *path, const char *text, int len)
         if (had_original)
             (void)sceIoRename(old, path);
         (void)sceIoRemove(tmp);
+        s_write_error = "RENAME";
         return -1;
     }
 
@@ -430,12 +452,15 @@ int platform_write_config(const char *path, const char *text, int len)
          * possible; if the rename is refused, leave both files for manual
          * recovery rather than deleting the only remaining config.
          */
-        if (had_original && sceIoRename(old, path) < 0)
+        if (had_original && sceIoRename(old, path) < 0) {
+            s_write_error = "RESTORE";
             return -1;
+        }
 
         if (!had_original)
             (void)sceIoRemove(path);
 
+        s_write_error = "READBACK";
         return -1;
     }
 

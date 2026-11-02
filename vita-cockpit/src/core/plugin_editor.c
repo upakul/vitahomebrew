@@ -833,7 +833,8 @@ int editor_toggle(int row, int mode, char *err, int err_cap)
             g_editor.lines[i].active = old_active[i];
         rebuild_rows(&g_editor);
         if (err != NULL)
-            snprintf(err, (size_t)err_cap, "WRITE FAILED");
+            snprintf(err, (size_t)err_cap, "WRITE FAILED %s",
+                     platform_write_error());
         return -1;
     }
 

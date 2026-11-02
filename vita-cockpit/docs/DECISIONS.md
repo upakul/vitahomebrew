@@ -1093,9 +1093,11 @@ file back, and restores `<path>.old` if any step fails. The normal path never
 renames over an existing file.
 **Consequence:** A short read cannot become a truncated rewrite. A write reports
 success only after the live bytes were observed. If the final replace is refused,
-the original is restored and the row is unchanged. The recovery path still uses
-a rename over the live file when verification fails; if that is refused, both
-files are left for manual recovery.
+the original is restored and the row is unchanged. `platform_write_error()`
+reports `OPEN`, `DATA`, `CLOSE`, `VERIFY`, `MOVE`, `RENAME`, `READBACK`, or
+`RESTORE`, so the error line names the failing stage. The recovery path still
+uses a rename over the live file when verification fails; if that is refused,
+both files are left for manual recovery.
 **Rejected:** truncate-and-write; trusting the rename's return value; a
 read-back only of the sibling.
 

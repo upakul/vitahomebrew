@@ -34,8 +34,8 @@ change written to the active config and applied on the next boot.
 - **Auth:** UNSAFE eboot by default (`0x2F00000000000001`), because `uma0:`
   capacity needs `sceIoDevctl` (D42). `./build.sh --safe` builds the
   restricted `0x2F00000000000002` variant.
-- **Status:** builds and packages (111.6 KB VPK, b34), runs on the 3.65 console at
-  b13; 314 host checks and 13 previews pass. The fixed tabbed build is pending
+- **Status:** builds and packages (112.1 KB VPK, b35), runs on the 3.65 console at
+  b13; 316 host checks and 13 previews pass. The fixed tabbed build is pending
   the on-console check.
 
 The plugin screen resolves the active config the way taiHEN does — `ux0:` first,
@@ -69,7 +69,7 @@ or written.
 ./build.sh --safe     # restricted eboot, marked -safe in the filename
 ```
 
-Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b34.vpk`.
+Produces `build/cockpit-v<version>-b<build>.vpk`, e.g. `cockpit-v01.00-b35.vpk`.
 The build number counts distinct builds and is kept in `BUILD_NUMBER`: unchanged
 sources reuse the number, and only the newest VPK is kept (D46). Upload it with:
 
@@ -99,7 +99,7 @@ VitaShell must be running its FTP server on port 1337. The URL form is
 Links the real `core/` against a fake port and asserts the sampling policy, the
 plugin config model, the exact `#` edit, BOM and invalid-path handling, the two
 snapshots, the transactional write and its failure/restore path, and the input
-reducer. Exits non-zero on failure. 314 checks.
+reducer. Exits non-zero on failure. 316 checks.
 
 ## Preview without hardware
 

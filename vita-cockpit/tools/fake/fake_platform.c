@@ -250,6 +250,7 @@ static int s_fail_write;
 static int s_fail_backup;
 static int s_fail_read;
 static int s_fail_rename;
+static const char *s_write_error = "NONE";
 
 static FakeFile *find_file(const char *path)
 {
@@ -311,6 +312,7 @@ static void files_reset(void)
     s_fail_backup = 0;
     s_fail_read = 0;
     s_fail_rename = 0;
+    s_write_error = "NONE";
 
     add_file("ur0:tai/config.txt", SAMPLE_CONFIG);
     add_file("ur0:tai/boot_config.txt", SAMPLE_BOOT);
@@ -422,17 +424,33 @@ static int rename_file(const char *src, const char *dst)
     return 0;
 }
 
+const char *platform_write_error(void)
+{
+    return s_write_error;
+}
+
 int platform_write_config(const char *path, const char *text, int len)
 {
-    if (path == NULL || text == NULL || len < 0 || s_fail_write)
+    s_write_error = "NONE";
+
+    if (path == NULL || text == NULL || len < 0) {
+        s_write_error = "ARGS";
         return -1;
+    }
+
+    if (s_fail_write) {
+        s_write_error = "DATA";
+        return -1;
+    }
 
     char tmp[128];
     char old[128];
 
     if (snprintf(tmp, sizeof(tmp), "%s.new", path) >= (int)sizeof(tmp) ||
-        snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old))
+        snprintf(old, sizeof(old), "%s.old", path) >= (int)sizeof(old)) {
+        s_write_error = "PATH";
         return -1;
+    }
 
     remove_file(tmp);
 
@@ -440,8 +458,10 @@ int platform_write_config(const char *path, const char *text, int len)
         remove_file(old);
 
     FakeFile *f = make_file(tmp);
-    if (f == NULL || len >= FAKE_FILE_MAX)
+    if (f == NULL || len >= FAKE_FILE_MAX) {
+        s_write_error = "OPEN";
         return -1;
+    }
 
     memcpy(f->data, text, (size_t)len);
     f->data[len] = '\0';
@@ -449,6 +469,7 @@ int platform_write_config(const char *path, const char *text, int len)
 
     if (verify_bytes(tmp, text, len) != 0) {
         remove_file(tmp);
+        s_write_error = "VERIFY";
         return -1;
     }
 
@@ -456,6 +477,7 @@ int platform_write_config(const char *path, const char *text, int len)
 
     if (had_original && rename_file(path, old) != 0) {
         remove_file(tmp);
+        s_write_error = "MOVE";
         return -1;
     }
 
@@ -463,6 +485,7 @@ int platform_write_config(const char *path, const char *text, int len)
         if (had_original)
             (void)rename_file(old, path);
         remove_file(tmp);
+        s_write_error = "RENAME";
         return -1;
     }
 
@@ -471,6 +494,7 @@ int platform_write_config(const char *path, const char *text, int len)
             (void)rename_file(old, path);
         else
             remove_file(path);
+        s_write_error = "READBACK";
         return -1;
     }
 

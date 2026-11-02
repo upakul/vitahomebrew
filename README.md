@@ -55,7 +55,7 @@ cd vita-kernel-demo && ./build.sh   # app + kernel plugin
 Each project emits one uniquely named artifact in its `build/` directory:
 
 ```text
-build/cockpit-v01.00-b34.vpk
+build/cockpit-v01.00-b35.vpk
 build/cap-test-v01.00-b4.vpk
 build/kernel-demo-v01.00-b5.vpk
 ```
@@ -136,7 +136,7 @@ for a refused read.
 
 ```sh
 cd vita-cockpit
-./tools/test/run.sh      # 314 host checks against a fake port
+./tools/test/run.sh      # 316 host checks against a fake port
 ./tools/preview/run.sh   # 13 960×544 PNGs in build/preview/
 ```
 

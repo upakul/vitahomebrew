@@ -282,6 +282,7 @@ static void test_write_failures(void)
 
     fake_fail_write(1);
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) != 0);
+    CHECK(strstr(err, "DATA") != NULL);
     CHECK(text_is("ur0:tai/config.txt", before));
     CHECK(!platform_file_exists("ur0:tai/config.txt.new"));
     CHECK(!platform_file_exists("ur0:tai/config.txt.old"));
@@ -290,6 +291,7 @@ static void test_write_failures(void)
     fake_fail_rename(1);
     CHECK(editor_toggle(row, 0, err, (int)sizeof(err)) != 0);
     CHECK(strstr(err, "WRITE FAILED") != NULL);
+    CHECK(strstr(err, "RENAME") != NULL);
     CHECK(text_is("ur0:tai/config.txt", before));
     CHECK(!platform_file_exists("ur0:tai/config.txt.new"));
     CHECK(!platform_file_exists("ur0:tai/config.txt.old"));

@@ -130,6 +130,7 @@ typedef enum {
 PlatformReadStatus platform_read_config(const char *path, char *buf, int cap,
                                         int *out_len);
 int platform_write_config(const char *path, const char *text, int len);
+const char *platform_write_error(void);
 int platform_backup_config(const char *path, const char *text, int len,
                            int *original_ok, int *session_ok);
 
@@ -141,7 +142,8 @@ The config calls stay in the same adapter because every SDK file operation
 belongs to one module (D7). `platform_read_config` opens first and distinguishes
 absent, empty, too-large, and unreadable; a short read is unreadable.
 `platform_write_config` writes a verified sibling, moves the original aside,
-moves the sibling into place, and reads the live file back. `platform_backup_config`
+moves the sibling into place, and reads the live file back; `platform_write_error`
+names the stage that failed so a console report is actionable. `platform_backup_config`
 writes `config.txt.original` once and `config.txt.session` every launch.
 `platform_list_dir` feeds the orphan section without exposing `SceUID` or
 `SceIoDirent`.

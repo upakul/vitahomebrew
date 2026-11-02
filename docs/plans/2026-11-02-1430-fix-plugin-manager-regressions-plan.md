@@ -218,11 +218,11 @@ The console check after the build:
 
 ## Result
 
-- Host tests: 110 metrics/plugin checks + 204 editor/backup/input checks = 314,
+- Host tests: 110 metrics/plugin checks + 206 editor/backup/input checks = 316,
   0 failures. Address/undefined sanitizers clean.
 - Host preview: 13 scenes, busiest 5,793 draw calls (confirmation over the
   ledger), all under the 6,500 budget.
-- Build: `cockpit-v01.00-b34.vpk`, 111.6 KB, 0 warnings.
+- Build: `cockpit-v01.00-b35.vpk`, 112.1 KB, 0 warnings.
 - `boot_config.txt` is byte-identical in the host tests and has no `.bak`,
   `.original`, or `.session` beside it.
 - Hardware check remains pending; the probe list is in the Definition of Done.
